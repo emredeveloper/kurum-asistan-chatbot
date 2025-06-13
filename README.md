@@ -45,4 +45,4 @@ Bu proje, kurum içi kullanıma uygun, modern ve kullanıcı dostu bir sohbet bo
 - Kendi kurumunuza göre departmanları ve özellikleri kolayca özelleştirebilirsiniz.
 
 ---
-Geliştirici: [Siz]
+Geliştirici: emredeveloper
