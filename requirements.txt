@@ -1,0 +1,9 @@
+nltk
+spacy
+flask
+python-dateutil
+email-validator
+googletrans
+json5
+requests
+python-dotenv

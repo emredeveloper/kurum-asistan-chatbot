@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Citizen Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .dashboard-container {
+            max-width: 1100px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 28px;
+            box-shadow: 0 8px 32px rgba(102,126,234,0.15);
+            overflow: hidden;
+            border: 1.5px solid #e0e7ff;
+        }
+
+        .dashboard-header {
+            background: linear-gradient(135deg, #4f46e5 0%, #667eea 100%);
+            color: #fff;
+            padding: 36px 32px 22px 32px;
+            text-align: left;
+            position: relative;
+            box-shadow: 0 2px 12px rgba(102,126,234,0.08);
+        }
+
+        .dashboard-header h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }
+
+        .dashboard-header p {
+            font-size: 1.1rem;
+            opacity: 0.93;
+            font-weight: 400;
+        }
+
+        .back-btn {
+            position: absolute;
+            top: 32px;
+            left: 32px;
+            background: #fff;
+            border: 2px solid #e0e7ff;
+            color: #4f46e5;
+            padding: 10px 22px;
+            border-radius: 22px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 1rem;
+            font-weight: 500;
+            box-shadow: 0 2px 8px rgba(102,126,234,0.08);
+            transition: all 0.2s;
+        }
+
+        .back-btn:hover {
+            background: #e0e7ff;
+            color: #232946;
+        }
+
+        .history-section, .weather-section, .support-section {
+            padding: 32px 32px 0 32px;
+        }
+
+        .history-section h2, .weather-section h2, .support-section h2 {
+            color: #4f46e5;
+            font-size: 1.35rem;
+            font-weight: 600;
+            margin-bottom: 18px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            background: #f8f9ff;
+            border-radius: 18px;
+            box-shadow: 0 2px 12px rgba(102,126,234,0.07);
+            overflow: hidden;
+        }
+
+        th, td {
+            padding: 13px 10px;
+            border-bottom: 1.5px solid #e0e7ff;
+            font-size: 1.05rem;
+        }
+
+        th {
+            background: #e0e7ff;
+            color: #4f46e5;
+            font-size: 1.08rem;
+            font-weight: 600;
+            border-bottom: 2px solid #c7d2fe;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: #f1f5ff;
+            transition: background 0.2s;
+        }
+
+        .support-section td {
+            vertical-align: middle;
+        }
+
+        .support-section button {
+            background: linear-gradient(135deg, #667eea 0%, #4f46e5 100%);
+            color: #fff;
+            border: none;
+            padding: 8px 18px;
+            border-radius: 18px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            box-shadow: 0 2px 8px rgba(102,126,234,0.10);
+            transition: background 0.2s, transform 0.2s;
+        }
+
+        .support-section button:hover {
+            background: linear-gradient(135deg, #4f46e5 0%, #667eea 100%);
+            transform: scale(1.04);
+        }
+
+        @media (max-width: 900px) {
+            .dashboard-container {
+                max-width: 99vw;
+            }
+            .dashboard-header, .history-section, .weather-section, .support-section {
+                padding-left: 10px;
+                padding-right: 10px;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .dashboard-header h1 {
+                font-size: 1.3rem;
+            }
+            .dashboard-header p {
+                font-size: 0.95rem;
+            }
+            .history-section h2, .weather-section h2, .support-section h2 {
+                font-size: 1.05rem;
+            }
+            th, td {
+                font-size: 0.95rem;
+                padding: 7px 4px;
+            }
+        }
+
+        /* Karanlık tema desteği */
+        body.dark, .dashboard-container.dark {
+            background: linear-gradient(135deg, #232946 0%, #121629 100%) !important;
+            color: #eee;
+        }
+
+        .dashboard-header.dark {
+            background: linear-gradient(135deg, #232946 0%, #121629 100%) !important;
+            color: #eee;
+        }
+
+        table.dark {
+            background: #232946 !important;
+            color: #eee;
+        }
+
+        th.dark {
+            background: #232946 !important;
+            color: #a5b4fc;
+            border-bottom: 2px solid #333;
+        }
+
+        td.dark {
+            border-bottom: 1.5px solid #333;
+        }
+
+        tr.dark:hover td.dark {
+            background: #181c2a !important;
+        }
+
+        .back-btn.dark {
+            background: #232946 !important;
+            color: #eee !important;
+            border-color: #333;
+        }
+
+        .history-section.dark, .weather-section.dark, .support-section.dark {
+            background: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="dashboard-header">
+            <a href="/" class="back-btn">← Sohbete Dön</a>
+            <h1>📊 Sorgu Dashboard'u</h1>
+            <p>Son 20 sorgu ve bot cevabı</p>
+        </div>
+
+        <div class="history-section" style="padding:30px;">
+            <h2>Sorgu Geçmişi</h2>
+            <table style="width:100%;border-collapse:collapse;">
+                <thead>
+                    <tr style="background:#f8f9ff;">
+                        <th style="padding:8px;border:1px solid #eee;">Tür</th>
+                        <th style="padding:8px;border:1px solid #eee;">Kullanıcı Mesajı</th>
+                        <th style="padding:8px;border:1px solid #eee;">Bot Cevabı</th>
+                    </tr>
+                </thead>
+                <tbody id="historyTable">
+                </tbody>
+            </table>
+        </div>
+
+        <div class="weather-section" style="padding:30px;">
+            <h2>Hava Durumu Sorguları</h2>
+            <table style="width:100%;border-collapse:collapse;">
+                <thead>
+                    <tr style="background:#f8f9ff;">
+                        <th style="padding:8px;border:1px solid #eee;">Şehir</th>
+                        <th style="padding:8px;border:1px solid #eee;">Kullanıcı Mesajı</th>
+                        <th style="padding:8px;border:1px solid #eee;">Bot Cevabı</th>
+                    </tr>
+                </thead>
+                <tbody id="weatherTable">
+                </tbody>
+            </table>
+        </div>
+
+        <div class="support-section" style="padding:30px;">
+            <h2>Destek Taleplerim</h2>
+            <table style="width:100%;border-collapse:collapse;">
+                <thead>
+                    <tr style="background:#f8f9ff;">
+                        <th style="padding:8px;border:1px solid #eee;">Departman</th>
+                        <th style="padding:8px;border:1px solid #eee;">Açıklama</th>
+                        <th style="padding:8px;border:1px solid #eee;">Oluşturma Zamanı</th>
+                        <th style="padding:8px;border:1px solid #eee;">Durum</th>
+                        <th style="padding:8px;border:1px solid #eee;">İşlem</th>
+                    </tr>
+                </thead>
+                <tbody id="supportTable">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+    async function loadHistory() {
+        const response = await fetch('/api/history');
+        const history = await response.json();
+        // Sorgu Geçmişi
+        const historyTable = document.getElementById('historyTable');
+        historyTable.innerHTML = history.map(item => `
+            <tr>
+                <td style='border:1px solid #eee;padding:6px;'>${item.tip}</td>
+                <td style='border:1px solid #eee;padding:6px;'>${item.kullanici}</td>
+                <td style='border:1px solid #eee;padding:6px;'>${item.cevap}</td>
+            </tr>
+        `).join('');
+        // Hava Durumu Sorguları
+        const weatherTable = document.getElementById('weatherTable');
+        weatherTable.innerHTML = history.filter(item => item.tip === 'hava_durumu').map(item => `
+            <tr>
+                <td style='border:1px solid #eee;padding:6px;'>${item.sehir || ''}</td>
+                <td style='border:1px solid #eee;padding:6px;'>${item.kullanici}</td>
+                <td style='border:1px solid #eee;padding:6px;'>${item.cevap}</td>
+            </tr>
+        `).join('');
+    }
+
+    async function loadSupportTickets() {
+        const response = await fetch('/api/support_tickets');
+        const tickets = await response.json();
+        const supportTable = document.getElementById('supportTable');
+        supportTable.innerHTML = tickets.map((item, idx) => `
+            <tr>
+                <td style='border:1px solid #eee;padding:6px;'>${item.departman || ''}</td>
+                <td style='border:1px solid #eee;padding:6px;'>${item.aciklama}</td>
+                <td style='border:1px solid #eee;padding:6px;'>${item.olusturma_zamani || ''}</td>
+                <td style='border:1px solid #eee;padding:6px;'>${item.okundu ? 'Okundu' : 'Okunmadı'}</td>
+                <td style='border:1px solid #eee;padding:6px;'>${item.okundu ? '' : `<button onclick="markAsRead(${tickets.length-1-idx})">Okundu Olarak İşaretle</button>`}</td>
+            </tr>
+        `).join('');
+    }
+
+    async function markAsRead(idx) {
+        await fetch(`/api/support_tickets/read/${idx}`, {method:'POST'});
+        loadSupportTickets();
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        loadHistory();
+        loadSupportTickets();
+    });
+    </script>
+</body>
+</html>
