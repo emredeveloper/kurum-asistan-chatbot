@@ -1,15 +1,18 @@
 # Kurum İçi Akıllı Asistan Chatbotu
 
-Bu proje, kurum içi kullanıma uygun, modern ve kullanıcı dostu bir sohbet botudur. Hem masaüstü hem mobilde şık bir arayüz sunar.
+Kurumiçi süreçleri kolaylaştıran, LLM (yerel Ollama) tabanlı, modern ve fonksiyonel bir sohbet asistanı. Hava durumu, kurum içi bilgi, destek talebi, belge yükleme ve daha fazlası tek ekranda!
 
 ## Özellikler
-- 💬 Doğal dilde sohbet edebilme
-- 🌤️ Hava durumu sorgulama (örn: "İstanbul'da hava nasıl?")
-- 📅 Tarih ve gün bilgisini sorma (örn: "Yarın ne gün?")
-- 💼 Kurum içi destek talebi oluşturma (örn: "IT için destek kaydı aç")
-- 🗂️ Tüm geçmiş sorguları ve destek taleplerini dashboard'da görüntüleme
-- 🌙 Karanlık/Aydınlık tema seçeneği
-- Modern, responsive ve kolay kullanımlı arayüz
+- 🤖 **LLM tabanlı doğal dilde sohbet** (Ollama ile yerel model)
+- 🔗 **Çoklu tool/fonksiyon zinciri**: Hava durumu, kurum içi bilgi, destek talebi, belge yükleme
+- 🏢 **Kurum içi bilgi tabanı**: Sık sorulanlar, prosedürler, politikalar
+- 🌤️ **Hava durumu sorgulama** (OpenWeatherMap API)
+- 💼 **Destek talebi oluşturma** (departman, açıklama, aciliyet, kategori)
+- 🗂️ **Dashboard**: Sorgu geçmişi, hava durumu geçmişi, destek talepleri ve yüklenen raporlar
+- 📄 **Word/PDF rapor yükleme**: Hem sohbet ekranından hem dashboard'dan dosya ekleyip yönetme
+- �� **Karanlık/Aydınlık tema** (localStorage ile kalıcı)
+- 📱 **Modern, responsive ve mobil uyumlu arayüz**
+- 🛡️ **API anahtarı .env ile güvenli**
 
 ## Kurulum
 1. Depoyu klonlayın ve dizine girin.
@@ -27,7 +30,10 @@ Bu proje, kurum içi kullanıma uygun, modern ve kullanıcı dostu bir sohbet bo
    ```
    OPENWEATHER_API_KEY=API_ANAHTARINIZ
    ```
-5. Ollama ile bir LLM modeli çalıştırın (örn: devstral-small veya llama3:8b).
+5. Ollama ile bir LLM modeli çalıştırın (örn: devstral-small veya llama3:8b):
+   ```bash
+   ollama run llama3:8b
+   ```
 6. Uygulamayı başlatın:
    ```bash
    python app.py
@@ -35,14 +41,15 @@ Bu proje, kurum içi kullanıma uygun, modern ve kullanıcı dostu bir sohbet bo
 7. Tarayıcıda `http://localhost:5000` adresine gidin.
 
 ## Kullanım
-- Sohbet ekranında mesajınızı yazıp gönderin.
-- Hava durumu, tarih veya destek talebi gibi işlemleri doğal dilde sorabilirsiniz.
-- Dashboard üzerinden geçmiş sorgularınızı ve destek taleplerinizi takip edebilirsiniz.
-- Sağ üstteki tema butonuyla karanlık/aydınlık mod arasında geçiş yapabilirsiniz.
+- **Sohbet ekranı:** Mesajınızı yazıp gönderin, hava durumu, bilgi, destek, belge yükleme gibi işlemleri doğal dilde sorun.
+- **Rapor yükleme:** Sohbet ekranından veya dashboard'dan Word/PDF dosyası ekleyin, dashboard'da yönetin ve indirin.
+- **Dashboard:** Sorgu geçmişi, hava durumu, destek talepleri ve yüklenen raporları görüntüleyin.
+- **Tema:** Sağ üstteki butonla karanlık/aydınlık mod arasında geçiş yapın.
 
 ## Notlar
 - Tüm veriler geçici olarak bellekte tutulur, kullanıcı kimliği desteği eklenebilir.
-- Kendi kurumunuza göre departmanları ve özellikleri kolayca özelleştirebilirsiniz.
+- Departmanlar, bilgi tabanı ve tool zinciri kolayca özelleştirilebilir.
+- Gelişmiş LLM entegrasyonu ile çoklu tool/fonksiyon zinciri desteklenir.
 
 ---
 Geliştirici: emredeveloper
