@@ -259,6 +259,28 @@
                 </tbody>
             </table>
         </div>
+
+        <div class="report-section" style="padding:30px;">
+            <h2>Rapor Yükle (Word/PDF)</h2>
+            <form id="reportForm" enctype="multipart/form-data" style="margin-bottom:18px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+                <input type="file" name="file" id="reportFile" accept=".pdf,.doc,.docx" required style="padding:7px;"/>
+                <input type="text" name="uploader" id="uploaderName" placeholder="Yükleyen Adı" required style="padding:7px;border-radius:8px;border:1px solid #e0e7ff;"/>
+                <button type="submit" style="padding:8px 18px;border-radius:18px;background:linear-gradient(135deg,#667eea 0%,#4f46e5 100%);color:#fff;border:none;font-weight:500;cursor:pointer;">Yükle</button>
+                <span id="reportMsg" style="margin-left:10px;font-size:1rem;"></span>
+            </form>
+            <h2>Yüklenen Raporlar</h2>
+            <table style="width:100%;border-collapse:collapse;">
+                <thead>
+                    <tr style="background:#f8f9ff;">
+                        <th style="padding:8px;border:1px solid #eee;">Dosya Adı</th>
+                        <th style="padding:8px;border:1px solid #eee;">Yükleyen</th>
+                        <th style="padding:8px;border:1px solid #eee;">Yükleme Tarihi</th>
+                        <th style="padding:8px;border:1px solid #eee;">İndir</th>
+                    </tr>
+                </thead>
+                <tbody id="reportTable"></tbody>
+            </table>
+        </div>
     </div>
 
     <script>
@@ -305,9 +327,56 @@
         loadSupportTickets();
     }
 
+    async function loadReports() {
+        const response = await fetch('/reports');
+        const reports = await response.json();
+        const reportTable = document.getElementById('reportTable');
+        reportTable.innerHTML = reports.map(item => `
+            <tr>
+                <td style='border:1px solid #eee;padding:6px;'>${item.orjinal_ad}</td>
+                <td style='border:1px solid #eee;padding:6px;'>${item.uploader}</td>
+                <td style='border:1px solid #eee;padding:6px;'>${item.upload_time}</td>
+                <td style='border:1px solid #eee;padding:6px;'><a href="/download_report/${item.filename}" target="_blank" style="color:#4f46e5;text-decoration:underline;">İndir</a></td>
+            </tr>
+        `).join('');
+    }
+
+    document.getElementById('reportForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const fileInput = document.getElementById('reportFile');
+        const uploaderInput = document.getElementById('uploaderName');
+        const msg = document.getElementById('reportMsg');
+        if (!fileInput.files.length) {
+            msg.textContent = 'Lütfen bir dosya seçin.';
+            return;
+        }
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('uploader', uploaderInput.value);
+        msg.textContent = 'Yükleniyor...';
+        try {
+            const resp = await fetch('/upload_report', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await resp.json();
+            if (data.success) {
+                msg.textContent = 'Rapor başarıyla yüklendi!';
+                fileInput.value = '';
+                uploaderInput.value = '';
+                loadReports();
+            } else {
+                msg.textContent = data.message;
+            }
+        } catch (err) {
+            msg.textContent = 'Yükleme sırasında hata oluştu.';
+        }
+    });
+
     document.addEventListener('DOMContentLoaded', function() {
         loadHistory();
         loadSupportTickets();
+        loadReports();
     });
     </script>
 </body>

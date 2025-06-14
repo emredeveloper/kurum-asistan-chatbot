@@ -14,6 +14,13 @@ OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "BURAYA_API_KEY_GIRIN")
 class CitizenAssistantBot:
     DEPARTMANLAR = ["IT", "İnsan Kaynakları", "Muhasebe", "Teknik Servis"]
 
+    KURUM_BILGI_TABANI = {
+        "seyahat politikası": "Şirketimizde şehir dışı seyahatler için önceden onay alınmalı ve masraflar fatura ile belgelendirilmelidir.",
+        "izin prosedürü": "Yıllık izinler için en az 3 gün önceden İK'ya başvurulmalıdır.",
+        "mesai ücreti": "Fazla mesai ücretleri, ilgili ayın sonunda bordroya yansıtılır.",
+        "yemekhane": "Yemekhane hafta içi 12:00-14:00 arası açıktır."
+    }
+
     def __init__(self):
         self.history = []
         self.support_tickets = []
@@ -61,8 +68,18 @@ class CitizenAssistantBot:
     def normalize_dept(self, text):
         return text.strip().lower().replace("ı", "i").replace("ç", "c").replace("ş", "s").replace("ö", "o").replace("ü", "u").replace("ğ", "g")
 
+    def get_kurum_bilgisi(self, soru):
+        for anahtar, cevap in self.KURUM_BILGI_TABANI.items():
+            if anahtar in soru.lower():
+                return cevap
+        return "Bu konuda bilgi bulunamadı."
+
     def process_message(self, message: str, user_id: str = "default") -> str:
-        # Eğer açıklama bekleniyorsa
+        # Bağlam için son 3 mesajı al
+        last_msgs = [h for h in self.history if h.get("user_id") == user_id][-3:]
+        context = "\n".join([f"Kullanıcı: {h['kullanici']}\nBot: {h['cevap']}" for h in last_msgs])
+
+        # Açıklama/departman state'leri (önceki kod aynı)
         if self.waiting_for_description and self.pending_ticket and self.waiting_for_department_user == user_id:
             self.pending_ticket['aciklama'] = message.strip()
             self.pending_ticket['okundu'] = False
@@ -73,75 +90,48 @@ class CitizenAssistantBot:
             self.pending_ticket = None
             self.waiting_for_department_user = None
             return f"{self.last_department} departmanına destek talebiniz oluşturuldu. Talebinizin durumunu dashboard'dan takip edebilirsiniz."
-
-        # Eğer departman bekleniyorsa
         if self.waiting_for_department and self.pending_ticket and self.waiting_for_department_user == user_id:
             department_input = self.normalize_dept(message)
+            matched_dept = None
             for dept in self.DEPARTMANLAR:
-                if self.normalize_dept(dept) == department_input:
-                    department = dept
+                norm_dept = self.normalize_dept(dept)
+                if norm_dept in department_input or department_input in norm_dept:
+                    matched_dept = dept
                     break
-            else:
+            if not matched_dept:
                 return f"Geçersiz departman. Lütfen şu seçeneklerden birini yazın: {', '.join(self.DEPARTMANLAR)}"
-            self.pending_ticket['departman'] = department
-            self.last_department = department
+            self.pending_ticket['departman'] = matched_dept
+            self.last_department = matched_dept
             self.waiting_for_department = False
             self.waiting_for_description = True
             return "Lütfen destek talebinizin açıklamasını yazar mısınız?"
 
-        # LLM ile tool call/fonksiyon çağrısı
+        # LLM ile tool chain/fonksiyon çağrısı
         llm_prompt = f'''
-Aşağıdaki kullanıcı mesajını analiz et. 
-Eğer bir tool çağrısı gerekiyorsa bana şu formatta JSON döndür: 
-{{"tool": "hava_durumu", "sehir": "İstanbul"}} 
-veya {{"tool": "destek_talebi", "departman": "IT", "aciklama": "Bilgisayarım bozuldu"}}. 
-Eğer tool çağrısı yoksa sadece normal cevabını ver. 
+Aşağıda son konuşma geçmişi ve yeni kullanıcı mesajı var. Eğer bir veya birden fazla tool çağrısı gerekiyorsa bana şu formatta JSON döndür:
+Tek tool için: {{"tool": "hava_durumu", "sehir": "İstanbul"}}
+Çoklu tool için: [{{"tool": "hava_durumu", "sehir": "İstanbul"}}, {{"tool": "kurum_bilgisi", "soru": "seyahat politikası"}}]
+Kurum içi bilgi için: {{"tool": "kurum_bilgisi", "soru": "seyahat politikası"}}
+Destek talebi için: {{"tool": "destek_talebi", "departman": "IT", "aciklama": "Bilgisayarım bozuldu", "aciliyet": "acil", "kategori": "donanım"}}
+Eğer tool çağrısı yoksa sadece normal cevabını ver.
+
+Son konuşma geçmişi:
+{context}
+
 Kullanıcı mesajı: {message}
 '''
         llm_response = self.ollama_chat(llm_prompt)
         try:
             data = json.loads(llm_response)
-            if data.get('tool') == 'hava_durumu':
-                sehir = data.get('sehir', 'İstanbul')
-                cevap = self.get_weather(sehir)
-                self.history.append({
-                    "tip": "hava_durumu",
-                    "kullanici": message,
-                    "cevap": cevap,
-                    "sehir": sehir,
-                    "user_id": user_id
-                })
-                return cevap
-            if data.get('tool') == 'destek_talebi':
-                department = data.get('departman', '').capitalize()
-                if department not in self.DEPARTMANLAR:
-                    self.waiting_for_department = True
-                    self.pending_ticket = {
-                        "aciklama": None,
-                        "departman": None,
-                        "okundu": False,
-                        "olusturma_zamani": None,
-                        "user_id": user_id
-                    }
-                    self.waiting_for_department_user = user_id
-                    return f"Geçersiz departman. Lütfen şu seçeneklerden birini yazın: {', '.join(self.DEPARTMANLAR)}"
-                self.pending_ticket = {
-                    "aciklama": data.get('aciklama', None),
-                    "departman": department,
-                    "okundu": False,
-                    "olusturma_zamani": None,
-                    "user_id": user_id
-                }
-                self.last_department = department
-                if not self.pending_ticket['aciklama']:
-                    self.waiting_for_description = True
-                    self.waiting_for_department_user = user_id
-                    self.waiting_for_department = False
-                    return "Lütfen destek talebinizin açıklamasını yazar mısınız?"
-                self.pending_ticket['olusturma_zamani'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                self.support_tickets.append(self.pending_ticket)
-                self.pending_ticket = None
-                return f"{department} departmanına destek talebiniz oluşturuldu. Talebinizin durumunu dashboard'dan takip edebilirsiniz."
+            # Çoklu tool chain desteği
+            if isinstance(data, list):
+                results = []
+                for item in data:
+                    results.append(self._handle_tool_call(item, message, user_id))
+                return "\n\n".join(results)
+            # Tek tool
+            if isinstance(data, dict) and data.get('tool'):
+                return self._handle_tool_call(data, message, user_id)
         except Exception:
             pass
         # Tool call yoksa, tarih ve diğer tool'lar için eski kodu kullan
@@ -209,6 +199,82 @@ Kullanıcı mesajı: {message}
             "user_id": user_id
         })
         return cevap
+
+    def _handle_tool_call(self, data, message, user_id):
+        tool = data.get('tool')
+        if tool == 'hava_durumu':
+            sehir = data.get('sehir', 'İstanbul')
+            cevap = self.get_weather(sehir)
+            self.history.append({
+                "tip": "hava_durumu",
+                "kullanici": message,
+                "cevap": cevap,
+                "sehir": sehir,
+                "user_id": user_id
+            })
+            return cevap
+        if tool == 'kurum_bilgisi':
+            soru = data.get('soru', '')
+            cevap = self.get_kurum_bilgisi(soru)
+            self.history.append({
+                "tip": "kurum_bilgisi",
+                "kullanici": message,
+                "cevap": cevap,
+                "soru": soru,
+                "user_id": user_id
+            })
+            return cevap
+        if tool == 'destek_talebi':
+            department_input = self.normalize_dept(data.get('departman', ''))
+            matched_dept = None
+            for dept in self.DEPARTMANLAR:
+                norm_dept = self.normalize_dept(dept)
+                if norm_dept in department_input or department_input in norm_dept:
+                    matched_dept = dept
+                    break
+            aciklama = data.get('aciklama', None)
+            aciliyet = data.get('aciliyet', 'normal')
+            kategori = data.get('kategori', 'genel')
+            if not matched_dept:
+                self.waiting_for_department = True
+                self.pending_ticket = {
+                    "aciklama": aciklama,
+                    "departman": None,
+                    "okundu": False,
+                    "olusturma_zamani": None,
+                    "user_id": user_id,
+                    "aciliyet": aciliyet,
+                    "kategori": kategori
+                }
+                self.waiting_for_department_user = user_id
+                return f"Geçersiz departman. Lütfen şu seçeneklerden birini yazın: {', '.join(self.DEPARTMANLAR)}"
+            if not aciklama:
+                self.pending_ticket = {
+                    "aciklama": None,
+                    "departman": matched_dept,
+                    "okundu": False,
+                    "olusturma_zamani": None,
+                    "user_id": user_id,
+                    "aciliyet": aciliyet,
+                    "kategori": kategori
+                }
+                self.last_department = matched_dept
+                self.waiting_for_description = True
+                self.waiting_for_department_user = user_id
+                self.waiting_for_department = False
+                return "Lütfen destek talebinizin açıklamasını yazar mısınız?"
+            ticket = {
+                "aciklama": aciklama,
+                "departman": matched_dept,
+                "okundu": False,
+                "olusturma_zamani": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "user_id": user_id,
+                "aciliyet": aciliyet,
+                "kategori": kategori
+            }
+            self.support_tickets.append(ticket)
+            return f"{matched_dept} departmanına destek talebiniz oluşturuldu. (Aciliyet: {aciliyet}, Kategori: {kategori}) Dashboard'dan takip edebilirsiniz."
+        return "Tool çağrısı tanınmadı."
 
     def get_history(self, user_id: str = "default"):
         return [h for h in self.history[-20:] if h.get("user_id") == user_id]
