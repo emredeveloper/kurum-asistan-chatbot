@@ -3,7 +3,9 @@ spacy
 flask
 python-dateutil
 email-validator
-googletrans
+googletrans==4.0.0rc1
 json5
 requests
 python-dotenv
+pytest
+pytest-mock

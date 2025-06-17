@@ -3,7 +3,10 @@ import os
 from dotenv import load_dotenv
 import json
 import datetime
+import uuid # For generating ticket IDs
 from dateutil import parser
+import database # Import the new database module
+from googletrans import Translator # For translation
 
 load_dotenv()
 
@@ -22,13 +25,9 @@ class CitizenAssistantBot:
     }
 
     def __init__(self):
-        self.history = []
-        self.support_tickets = []
-        self.waiting_for_department = False
-        self.pending_ticket = None
-        self.waiting_for_department_user = None
-        self.waiting_for_description = False
-        self.last_department = None
+        # self.histories and self.all_support_tickets are now removed
+        # User states are kept in memory for the duration of a session's multi-turn interactions
+        self.user_states = {}
 
     def ollama_chat(self, prompt: str) -> str:
         try:
@@ -65,46 +64,99 @@ class CitizenAssistantBot:
         except Exception as e:
             return f"Hava durumu hatası: {e}"
 
-    def normalize_dept(self, text):
-        return text.strip().lower().replace("ı", "i").replace("ç", "c").replace("ş", "s").replace("ö", "o").replace("ü", "u").replace("ğ", "g")
+    def normalize_dept(self, text: str) -> str:
+        text = text.replace("İ", "i") # Convert uppercase dotted I to lowercase i
+        text = text.replace("I", "i") # Convert uppercase dotless I to lowercase i (Turkish 'ı' becomes 'i')
+        text = text.lower() # Convert to lowercase
+
+        # Standard Turkish character normalization for search/matching
+        replacements = {
+            "ı": "i",
+            "ç": "c",
+            "ş": "s",
+            "ö": "o",
+            "ü": "u",
+            "ğ": "g",
+        }
+        for char_tr, char_en in replacements.items():
+            text = text.replace(char_tr, char_en)
+        return text.strip()
 
     def get_kurum_bilgisi(self, soru):
+        # Normalize the question for more robust matching
+        normalized_soru = self.normalize_dept(soru) # Using normalize_dept for general text normalization
         for anahtar, cevap in self.KURUM_BILGI_TABANI.items():
-            if anahtar in soru.lower():
+            # Normalize keywords from the knowledge base as well for consistent matching
+            normalized_anahtar = self.normalize_dept(anahtar)
+            if normalized_anahtar in normalized_soru:
                 return cevap
         return "Bu konuda bilgi bulunamadı."
 
-    def process_message(self, message: str, user_id: str = "default") -> str:
-        # Bağlam için son 3 mesajı al
-        last_msgs = [h for h in self.history if h.get("user_id") == user_id][-3:]
-        context = "\n".join([f"Kullanıcı: {h['kullanici']}\nBot: {h['cevap']}" for h in last_msgs])
+    # The following def process_message was the start of the duplicated block.
+    # The lines "if anahtar in soru.lower(): return cevap" and "return "Bu konuda..."
+    # were remnants of the old get_kurum_bilgisi logic that got misplaced.
+    # They are removed by this diff not including them before the correct process_message.
 
-        # Açıklama/departman state'leri (önceki kod aynı)
-        if self.waiting_for_description and self.pending_ticket and self.waiting_for_department_user == user_id:
-            self.pending_ticket['aciklama'] = message.strip()
-            self.pending_ticket['okundu'] = False
-            self.pending_ticket['olusturma_zamani'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-            self.pending_ticket['user_id'] = user_id
-            self.support_tickets.append(self.pending_ticket)
-            self.waiting_for_description = False
-            self.pending_ticket = None
-            self.waiting_for_department_user = None
-            return f"{self.last_department} departmanına destek talebiniz oluşturuldu. Talebinizin durumunu dashboard'dan takip edebilirsiniz."
-        if self.waiting_for_department and self.pending_ticket and self.waiting_for_department_user == user_id:
+    def process_message(self, message: str, user_id: str) -> str:
+        user_state = self.user_states.setdefault(user_id, {})
+        bot_response = "" # Initialize bot_response
+
+        # Bağlam için son 3 mesajı al from database
+        db_history = database.get_chat_history(user_id, limit=3) # Returns newest first
+        context_msgs = []
+        for h_entry in reversed(db_history): # Reverse to get chronological order for context
+            context_msgs.append(f"Kullanıcı: {h_entry['user_message']}\nBot: {h_entry['bot_response']}")
+        context = "\n".join(context_msgs)
+
+        # Açıklama/departman state'leri
+        if user_state.get('waiting_for_description') and user_state.get('pending_ticket'):
+            pending_ticket_info = user_state['pending_ticket']
+            pending_ticket_info['aciklama'] = message.strip()
+
+            ticket_id = uuid.uuid4().hex[:8]
+            department = pending_ticket_info.get('departman', user_state.get('last_department'))
+            description = pending_ticket_info['aciklama']
+            priority = pending_ticket_info.get('aciliyet', 'normal')
+            category = pending_ticket_info.get('kategori', 'genel')
+
+            database.add_support_ticket(user_id, ticket_id, department, description, priority, category)
+
+            bot_response = f"{department} departmanına {ticket_id} ID'li destek talebiniz oluşturuldu. Talebinizin durumunu dashboard'dan takip edebilirsiniz."
+            database.add_chat_history(user_id, "destek_talebi_oluşturuldu", message, bot_response, json.dumps({
+                "ticket_id": ticket_id, "department": department, "priority": priority, "category": category
+            }))
+
+            user_state['waiting_for_description'] = False
+            user_state['pending_ticket'] = None
+            user_state['last_department'] = None
+            return bot_response
+
+        if user_state.get('waiting_for_department') and user_state.get('pending_ticket'):
             department_input = self.normalize_dept(message)
             matched_dept = None
-            for dept in self.DEPARTMANLAR:
-                norm_dept = self.normalize_dept(dept)
-                if norm_dept in department_input or department_input in norm_dept:
-                    matched_dept = dept
+            # department_input is already normalized by process_message before this state is reached,
+            # or by _handle_tool_call if LLM provides it.
+            # Let's re-normalize here to be sure, or ensure it's always normalized before this check.
+            # For now, assume department_input (user's typed message) needs normalization here.
+            normalized_department_input = self.normalize_dept(message)
+
+            for dept_option in self.DEPARTMANLAR:
+                normalized_dept_option = self.normalize_dept(dept_option)
+                if normalized_dept_option in normalized_department_input or normalized_department_input == normalized_dept_option:
+                    matched_dept = dept_option # Store the original department name
                     break
             if not matched_dept:
-                return f"Geçersiz departman. Lütfen şu seçeneklerden birini yazın: {', '.join(self.DEPARTMANLAR)}"
-            self.pending_ticket['departman'] = matched_dept
-            self.last_department = matched_dept
-            self.waiting_for_department = False
-            self.waiting_for_description = True
-            return "Lütfen destek talebinizin açıklamasını yazar mısınız?"
+                bot_response = f"Geçersiz departman. Lütfen şu seçeneklerden birini yazın: {', '.join(self.DEPARTMANLAR)}"
+                database.add_chat_history(user_id, "destek_talebi_etkileşim", message, bot_response)
+                return bot_response
+
+            user_state['pending_ticket']['departman'] = matched_dept # Store original casing
+            user_state['last_department'] = matched_dept
+            user_state['waiting_for_department'] = False
+            user_state['waiting_for_description'] = True
+            bot_response = "Lütfen destek talebinizin açıklamasını yazar mısınız?"
+            database.add_chat_history(user_id, "destek_talebi_etkileşim", message, bot_response)
+            return bot_response
 
         # LLM ile tool chain/fonksiyon çağrısı
         llm_prompt = f'''
@@ -130,161 +182,163 @@ Kullanıcı mesajı: {message}
                     results.append(self._handle_tool_call(item, message, user_id))
                 return "\n\n".join(results)
             # Tek tool
-            if isinstance(data, dict) and data.get('tool'):
+            if isinstance(data, dict) and data.get('tool'): # Reverted to original condition
                 return self._handle_tool_call(data, message, user_id)
         except Exception:
             pass
         # Tool call yoksa, tarih ve diğer tool'lar için eski kodu kullan
         lower_msg = message.lower()
+        date_type = None
+        date_details = None
+
         if "bugün" in lower_msg:
             bugun = datetime.datetime.now()
             gunler = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
-            cevap = f"Bugün {gunler[bugun.weekday()]}, {bugun.day} {bugun.strftime('%B %Y')}."
-            self.history.append({
-                "tip": "tarih",
-                "kullanici": message,
-                "cevap": cevap,
-                "tarih": bugun.strftime("%Y-%m-%d"),
-                "user_id": user_id
-            })
-            return cevap
-        if "yarın" in lower_msg:
+            bot_response = f"Bugün {gunler[bugun.weekday()]}, {bugun.day} {bugun.strftime('%B %Y')}."
+            date_type = "tarih_bugün"
+            date_details = {"tarih_detay": bugun.strftime("%Y-%m-%d")}
+        elif "yarın" in lower_msg:
             yarin = datetime.datetime.now() + datetime.timedelta(days=1)
             gunler = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
-            cevap = f"Yarın {gunler[yarin.weekday()]}, {yarin.day} {yarin.strftime('%B %Y')}."
-            self.history.append({
-                "tip": "tarih",
-                "kullanici": message,
-                "cevap": cevap,
-                "tarih": yarin.strftime("%Y-%m-%d"),
-                "user_id": user_id
-            })
-            return cevap
-        if "dün" in lower_msg:
+            bot_response = f"Yarın {gunler[yarin.weekday()]}, {yarin.day} {yarin.strftime('%B %Y')}."
+            date_type = "tarih_yarın"
+            date_details = {"tarih_detay": yarin.strftime("%Y-%m-%d")}
+        elif "dün" in lower_msg:
             dun = datetime.datetime.now() - datetime.timedelta(days=1)
             gunler = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
-            cevap = f"Dün {gunler[dun.weekday()]}, {dun.day} {dun.strftime('%B %Y')}."
-            self.history.append({
-                "tip": "tarih",
-                "kullanici": message,
-                "cevap": cevap,
-                "tarih": dun.strftime("%Y-%m-%d"),
-                "user_id": user_id
-            })
-            return cevap
-        # İngilizce tarih varsa Türkçe'ye çevir
-        try:
-            dt = parser.parse(message, fuzzy=True, dayfirst=True)
-            gunler = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
-            aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
-            gun_adi = gunler[dt.weekday()]
-            ay_adi = aylar[dt.month-1]
-            cevap = f"{dt.day} {ay_adi} {dt.year} {gun_adi}"
-            self.history.append({
-                "tip": "tarih",
-                "kullanici": message,
-                "cevap": cevap,
-                "tarih": dt.strftime("%Y-%m-%d"),
-                "user_id": user_id
-            })
-            return cevap
-        except Exception:
-            pass
-        # LLM ile sohbet
-        cevap = self.ollama_chat(message)
-        self.history.append({
-            "tip": "llm",
-            "kullanici": message,
-            "cevap": cevap,
-            "user_id": user_id
-        })
-        return cevap
+            bot_response = f"Dün {gunler[dun.weekday()]}, {dun.day} {dun.strftime('%B %Y')}."
+            date_type = "tarih_dün"
+            date_details = {"tarih_detay": dun.strftime("%Y-%m-%d")}
+        else:
+            try:
+                dt = parser.parse(message, fuzzy=True, dayfirst=True)
+                gunler = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
+                aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
+                gun_adi = gunler[dt.weekday()]
+                ay_adi = aylar[dt.month-1]
+                bot_response = f"{dt.day} {ay_adi} {dt.year} {gun_adi}"
+                date_type = "tarih_parse"
+                date_details = {"tarih_detay": dt.strftime("%Y-%m-%d")}
+            except Exception:
+                pass # Not a parsable date
 
-    def _handle_tool_call(self, data, message, user_id):
+        if date_type and bot_response:
+            database.add_chat_history(user_id, date_type, message, bot_response, json.dumps(date_details) if date_details else None)
+            return bot_response
+
+        # LLM ile sohbet (eğer tool/tarih değilse)
+        bot_response = self.ollama_chat(message) # Use original message for pure LLM chat
+        database.add_chat_history(user_id, "llm_cevap", message, bot_response)
+        return bot_response
+
+    def _handle_tool_call(self, data, original_user_message: str, user_id: str):
+        user_state = self.user_states.setdefault(user_id, {})
         tool = data.get('tool')
+        bot_response = ""
+
         if tool == 'hava_durumu':
-            sehir = data.get('sehir', 'İstanbul')
-            cevap = self.get_weather(sehir)
-            self.history.append({
-                "tip": "hava_durumu",
-                "kullanici": message,
-                "cevap": cevap,
-                "sehir": sehir,
-                "user_id": user_id
-            })
-            return cevap
+            sehir = data.get('sehir', 'İstanbul') # Default to İstanbul if not provided
+            bot_response = self.get_weather(sehir)
+            database.add_chat_history(user_id, "hava_durumu", original_user_message, bot_response, json.dumps({"sehir": sehir}))
+            return bot_response
+
         if tool == 'kurum_bilgisi':
             soru = data.get('soru', '')
-            cevap = self.get_kurum_bilgisi(soru)
-            self.history.append({
-                "tip": "kurum_bilgisi",
-                "kullanici": message,
-                "cevap": cevap,
-                "soru": soru,
-                "user_id": user_id
-            })
-            return cevap
+            bot_response = self.get_kurum_bilgisi(soru)
+            database.add_chat_history(user_id, "kurum_bilgisi", original_user_message, bot_response, json.dumps({"soru": soru}))
+            return bot_response
+
         if tool == 'destek_talebi':
-            department_input = self.normalize_dept(data.get('departman', ''))
+            department_input_from_llm = data.get('departman', '')
+            normalized_department_input_llm = self.normalize_dept(department_input_from_llm)
             matched_dept = None
-            for dept in self.DEPARTMANLAR:
-                norm_dept = self.normalize_dept(dept)
-                if norm_dept in department_input or department_input in norm_dept:
-                    matched_dept = dept
+            for dept_option in self.DEPARTMANLAR:
+                normalized_dept_option = self.normalize_dept(dept_option)
+                if normalized_dept_option in normalized_department_input_llm or normalized_department_input_llm == normalized_dept_option:
+                    matched_dept = dept_option # Store original casing
                     break
+
             aciklama = data.get('aciklama', None)
             aciliyet = data.get('aciliyet', 'normal')
             kategori = data.get('kategori', 'genel')
-            if not matched_dept:
-                self.waiting_for_department = True
-                self.pending_ticket = {
-                    "aciklama": aciklama,
-                    "departman": None,
-                    "okundu": False,
-                    "olusturma_zamani": None,
-                    "user_id": user_id,
-                    "aciliyet": aciliyet,
-                    "kategori": kategori
-                }
-                self.waiting_for_department_user = user_id
-                return f"Geçersiz departman. Lütfen şu seçeneklerden birini yazın: {', '.join(self.DEPARTMANLAR)}"
-            if not aciklama:
-                self.pending_ticket = {
-                    "aciklama": None,
-                    "departman": matched_dept,
-                    "okundu": False,
-                    "olusturma_zamani": None,
-                    "user_id": user_id,
-                    "aciliyet": aciliyet,
-                    "kategori": kategori
-                }
-                self.last_department = matched_dept
-                self.waiting_for_description = True
-                self.waiting_for_department_user = user_id
-                self.waiting_for_department = False
-                return "Lütfen destek talebinizin açıklamasını yazar mısınız?"
-            ticket = {
+
+            # This structure is for when LLM provides all details, or for setting up pending state
+            current_ticket_data = {
                 "aciklama": aciklama,
                 "departman": matched_dept,
-                "okundu": False,
-                "olusturma_zamani": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "user_id": user_id,
                 "aciliyet": aciliyet,
-                "kategori": kategori
+                "kategori": kategori,
+                "user_id": user_id # Store user_id with pending data
             }
-            self.support_tickets.append(ticket)
-            return f"{matched_dept} departmanına destek talebiniz oluşturuldu. (Aciliyet: {aciliyet}, Kategori: {kategori}) Dashboard'dan takip edebilirsiniz."
-        return "Tool çağrısı tanınmadı."
 
-    def get_history(self, user_id: str = "default"):
-        return [h for h in self.history[-20:] if h.get("user_id") == user_id]
+            if not matched_dept:
+                user_state['waiting_for_department'] = True
+                user_state['pending_ticket'] = current_ticket_data # Store all gathered data
+                bot_response = f"Anladım, destek talebi oluşturmak istiyorsunuz. Hangi departmana iletelim? Seçenekler: {', '.join(self.DEPARTMANLAR)}"
+                database.add_chat_history(user_id, "destek_talebi_etkileşim", original_user_message, bot_response)
+                return bot_response
 
-    def get_support_tickets(self, user_id: str = "default"):
-        return [t for t in self.support_tickets[::-1] if t.get("user_id") == user_id]
+            if not aciklama:
+                user_state['pending_ticket'] = current_ticket_data # Store all gathered data
+                user_state['last_department'] = matched_dept
+                user_state['waiting_for_description'] = True
+                user_state['waiting_for_department'] = False
+                bot_response = f"{matched_dept} departmanı için destek talebi oluşturuyorum. Lütfen talebinizin açıklamasını yazar mısınız?"
+                database.add_chat_history(user_id, "destek_talebi_etkileşim", original_user_message, bot_response)
+                return bot_response
 
-    def mark_ticket_as_read(self, idx, user_id: str = "default"):
-        user_tickets = [t for t in self.support_tickets if t.get("user_id") == user_id]
+            # Both department and description are available directly from LLM tool call
+            ticket_id = uuid.uuid4().hex[:8]
+            database.add_support_ticket(user_id, ticket_id, matched_dept, aciklama, aciliyet, kategori)
+
+            bot_response = f"{matched_dept} departmanına {ticket_id} ID'li destek talebiniz oluşturuldu. (Aciliyet: {aciliyet}, Kategori: {kategori}) Dashboard'dan takip edebilirsiniz."
+            database.add_chat_history(user_id, "destek_talebi_oluşturuldu", original_user_message, bot_response, json.dumps({
+                "ticket_id": ticket_id, "department": matched_dept, "aciliyet": aciliyet, "kategori": kategori
+            }))
+
+            # Clear states related to this ticket as it's now fully created
+            user_state['pending_ticket'] = None
+            user_state['waiting_for_department'] = False
+            user_state['waiting_for_description'] = False
+            user_state['last_department'] = None
+            return bot_response
+
+        bot_response = "Tool çağrısı tanınmadı veya işlenemedi."
+        database.add_chat_history(user_id, "tool_hata", original_user_message, bot_response, json.dumps(data))
+        return bot_response
+
+    def get_history(self, user_id: str):
+        # Returns list of dicts, already ordered by timestamp desc, limit 20 by default in db func
+        return database.get_chat_history(user_id)
+
+    def get_support_tickets(self, user_id: str):
+        # Returns list of dicts, ordered by created_at desc, limit 50 by default in db func
+        return database.get_support_tickets(user_id)
+
+    def mark_ticket_as_read(self, idx: int, user_id: str):
+        # get_support_tickets returns tickets ordered by created_at DESC (newest first)
+        user_tickets = database.get_support_tickets(user_id)
+
         if 0 <= idx < len(user_tickets):
-            user_tickets[idx]['okundu'] = True
-            return True
+            ticket_to_mark = user_tickets[idx] # idx directly applies to the newest-first list
+            ticket_id = ticket_to_mark['ticket_id']
+            # The 'status' in DB for a read ticket could be 'read' or 'viewed'
+            # The previous in-memory version just set an 'okundu' boolean.
+            # We'll use 'read' as the status.
+            return database.update_support_ticket_status(user_id, ticket_id, 'read')
         return False
+
+    def translate_message(self, message: str, target_lang: str = 'en') -> str:
+        """Translates a message to the target language using Google Translate."""
+        if not message.strip():
+            return "" # Or handle as an error: "No message provided for translation."
+
+        try:
+            translator = Translator()
+            # Detect source language automatically, translate to target_lang
+            translated_text = translator.translate(message, dest=target_lang).text
+            return translated_text
+        except Exception as e:
+            # Log the error e if logging is set up
+            print(f"Translation error: {e}") # Basic print for now
+            return "Çeviri hizmetinde bir sorun oluştu. Lütfen daha sonra tekrar deneyin."
