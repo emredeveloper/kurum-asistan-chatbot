@@ -29,4 +29,7 @@ Thumbs.db
 .ipynb_checkpoints/
 
 # OS
-.DS_Store 
+.DS_Store
+
+# Database files
+chatbot_data.db
