@@ -69,7 +69,8 @@ def init_db(db_name_override=None):
         original_filename TEXT NOT NULL,
         stored_filename TEXT UNIQUE NOT NULL,
         uploader_name TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        processed INTEGER DEFAULT 0
     )
     ''')
 
@@ -153,15 +154,17 @@ def get_ticket_by_id(user_id: str, ticket_id: str):
 
 # --- Uploaded Reports Functions ---
 def add_report(user_id: str, original_filename: str, stored_filename: str, uploader_name: str):
-    """Adds a new uploaded report record."""
+    """Adds a new uploaded report record and returns its ID."""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO uploaded_reports (user_id, original_filename, stored_filename, uploader_name) VALUES (?, ?, ?, ?)",
         (user_id, original_filename, stored_filename, uploader_name)
     )
+    report_id = cursor.lastrowid
     conn.commit()
     conn.close()
+    return report_id
 
 def get_reports(user_id: str = None, limit: int = 100) -> list:
     """Retrieves uploaded reports. If user_id is None, gets all reports."""
@@ -180,6 +183,62 @@ def get_reports(user_id: str = None, limit: int = 100) -> list:
     reports = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return reports
+
+def get_report_by_id(report_id: int):
+    """Retrieves a specific report by its ID."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM uploaded_reports WHERE id = ?",
+        (report_id,)
+    )
+    report = cursor.fetchone()
+    conn.close()
+    return dict(report) if report else None
+
+def mark_report_as_processed(report_id: int):
+    """Marks a report as processed."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE uploaded_reports SET processed = 1 WHERE id = ?",
+        (report_id,)
+    )
+    conn.commit()
+    conn.close()
+
+def get_unprocessed_reports() -> list:
+    """Retrieves all reports that have not been processed yet."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM uploaded_reports WHERE processed = 0 ORDER BY created_at ASC"
+    )
+    reports = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return reports
+
+def delete_report(report_id: int):
+    """Deletes a report record from the database and returns its stored filename."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # First, get the stored filename to return it for file deletion
+    cursor.execute("SELECT stored_filename FROM uploaded_reports WHERE id = ?", (report_id,))
+    report = cursor.fetchone()
+    
+    if not report:
+        conn.close()
+        return None
+
+    stored_filename = report['stored_filename']
+
+    # Delete the record from the database
+    cursor.execute("DELETE FROM uploaded_reports WHERE id = ?", (report_id,))
+    conn.commit()
+    conn.close()
+    
+    return stored_filename
 
 if __name__ == '__main__':
     # For testing and initial setup

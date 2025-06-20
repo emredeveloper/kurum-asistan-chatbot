@@ -6,6 +6,7 @@ import uuid
 from werkzeug.utils import secure_filename
 import datetime
 import database # Import the database module
+from document_processor import processor as doc_processor # Import the document processor
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24) # Needed for session management
@@ -35,7 +36,9 @@ def index():
 
 @app.route('/welcome', methods=['GET'])
 def welcome_message():
-    return jsonify({'response': 'Merhaba! Ben Kurum Asistanı. Size nasıl yardımcı olabilirim?'})
+    if 'messages' not in session:
+        session['messages'] = []
+    return jsonify({'response': 'Merhaba! Ben Kurum Asistanı. Size aşağıdaki konularda yardımcı olabilirim:<br>- 🌤️ Güncel hava durumu bilgisi alabilirim.<br>- 💼 Destek talebi oluşturabilirim.<br>- 🏢 Kurum içi bilgi tabanımızdan sorularınızı yanıtlayabilirim.<br>- 📄 Belgelerinizi (Word/PDF) yükleyip, içerikleri hakkında sorular sorabilirsiniz.'})
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -111,12 +114,17 @@ def upload_report():
         stored_filename_with_time = f"{timestamp}_{original_filename}"
 
         try:
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], stored_filename_with_time))
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], stored_filename_with_time)
+            file.save(file_path)
             uploader_name = request.form.get('uploader', 'Bilinmiyor') # Name of person uploading
 
-            database.add_report(user_id, original_filename, stored_filename_with_time, uploader_name)
+            report_id = database.add_report(user_id, original_filename, stored_filename_with_time, uploader_name)
 
-            return jsonify({'success': True, 'message': 'Rapor başarıyla yüklendi.'})
+            # Process the document for RAG. In a real-world app, this should be
+            # offloaded to a background worker (e.g., Celery, RQ).
+            doc_processor.process_and_embed_document(file_path, report_id)
+
+            return jsonify({'success': True, 'message': 'Rapor başarıyla yüklendi ve işlendi.'})
         except Exception as e:
             # Log the exception e
             return jsonify({'success': False, 'message': f'Rapor yüklenirken bir hata oluştu: {str(e)}'}), 500
@@ -133,6 +141,35 @@ def get_reports():
 @app.route('/download_report/<filename>', methods=['GET'])
 def download_report(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename, as_attachment=True)
+
+@app.route('/delete_report/<int:report_id>', methods=['DELETE'])
+def delete_report_route(report_id):
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Yetkisiz erişim.'}), 401
+
+    try:
+        # Get the filename before deleting the DB record to ensure we can delete the file
+        report_details = database.get_report_by_id(report_id)
+        if not report_details:
+             return jsonify({'success': False, 'message': 'Rapor bulunamadı.'}), 404
+
+        stored_filename = report_details['stored_filename']
+        
+        # Delete from database
+        database.delete_report(report_id)
+
+        # Delete the file from the filesystem
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], stored_filename)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+        # Delete the document's vectors from the FAISS index
+        doc_processor.delete_document(report_id)
+
+        return jsonify({'success': True, 'message': 'Rapor başarıyla silindi.'})
+    except Exception as e:
+        print(f"Error deleting report {report_id}: {e}") # Log for debugging
+        return jsonify({'success': False, 'message': f'Rapor silinirken bir hata oluştu: {str(e)}'}), 500
 
 if __name__ == '__main__':
     # Initialize the database when running the app directly

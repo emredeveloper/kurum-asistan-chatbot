@@ -33,3 +33,9 @@ Thumbs.db
 
 # Database files
 chatbot_data.db
+*.db
+*.sqlite3
+
+# Uploads & Vector Store
+uploads/
+vector_store/

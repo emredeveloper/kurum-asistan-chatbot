@@ -13,7 +13,7 @@ def test_welcome_route(client):
     response = client.get('/welcome')
     assert response.status_code == 200
     json_data = response.get_json()
-    assert json_data == {'response': 'Merhaba! Ben Kurum Asistanı. Size nasıl yardımcı olabilirim?'}
+    assert json_data == {'response': 'Merhaba! Ben Kurum Asistanı. Size aşağıdaki konularda yardımcı olabilirim:<br>- 🌤️ Güncel hava durumu bilgisi alabilirim.<br>- 💼 Destek talebi oluşturabilirim.<br>- 🏢 Kurum içi bilgi tabanımızdan sorularınızı yanıtlayabilirim.<br>- 📄 Belgelerinizi (Word/PDF) yükleyip, içerikleri hakkında sorular sorabilirsiniz.'}
 
 def test_dashboard_route(client):
     """Test the /dashboard route."""

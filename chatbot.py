@@ -7,6 +7,7 @@ import uuid # For generating ticket IDs
 from dateutil import parser
 import database # Import the new database module
 from googletrans import Translator # For translation
+from document_processor import processor as doc_processor # Import the document processor
 
 load_dotenv()
 
@@ -165,6 +166,7 @@ Tek tool için: {{"tool": "hava_durumu", "sehir": "İstanbul"}}
 Çoklu tool için: [{{"tool": "hava_durumu", "sehir": "İstanbul"}}, {{"tool": "kurum_bilgisi", "soru": "seyahat politikası"}}]
 Kurum içi bilgi için: {{"tool": "kurum_bilgisi", "soru": "seyahat politikası"}}
 Destek talebi için: {{"tool": "destek_talebi", "departman": "IT", "aciklama": "Bilgisayarım bozuldu", "aciliyet": "acil", "kategori": "donanım"}}
+Belge sorgulamak için: {{"tool": "belge_sorgulama", "sorgu": "Yıllık izin prosedürü nedir?"}}
 Eğer tool çağrısı yoksa sadece normal cevabını ver.
 
 Son konuşma geçmişi:
@@ -246,6 +248,37 @@ Kullanıcı mesajı: {message}
             soru = data.get('soru', '')
             bot_response = self.get_kurum_bilgisi(soru)
             database.add_chat_history(user_id, "kurum_bilgisi", original_user_message, bot_response, json.dumps({"soru": soru}))
+            return bot_response
+
+        if tool == 'belge_sorgulama':
+            query = data.get('sorgu', '')
+            if not query:
+                return "Lütfen belge içinde ne aramak istediğinizi belirtin."
+
+            # 1. Search for relevant document chunks
+            search_results = doc_processor.search_in_documents(query, top_k=3)
+            
+            if not search_results:
+                return "Yüklenmiş belgelerde bu konuyla ilgili bir bilgi bulamadım."
+
+            # 2. Construct context for the LLM
+            context_for_llm = "\n\n".join([result['text'] for result in search_results])
+            
+            # 3. Ask the LLM to generate a response based on the context
+            rag_prompt = f'''
+Kullanıcının sorusunu, aşağıda verilen belge içeriklerini kullanarak yanıtla. 
+Cevabını sadece bu içeriklere dayandır. Cevabını maddeler halinde (markdown listesi kullanarak) düzenli ve okunaklı bir şekilde formatla.
+Eğer cevap bu içeriklerde yoksa, 'Belgelerde bu konuda bilgi bulamadım' de.
+
+Belge İçerikleri:
+{context_for_llm}
+
+Kullanıcı Sorusu: {query}
+
+Yanıtın:
+'''
+            bot_response = self.ollama_chat(rag_prompt)
+            database.add_chat_history(user_id, "belge_sorgulama", original_user_message, bot_response, json.dumps({"sorgu": query, "context": "..."})) # Context'i kaydetmekten kaçınarak veritabanı boyutunu küçült
             return bot_response
 
         if tool == 'destek_talebi':

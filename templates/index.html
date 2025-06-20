@@ -25,13 +25,21 @@
             🤖 Citizen Assistant is typing...
         </div>
         
-        <div class="report-upload-section" style="padding:24px 32px 0 32px;">
-            <h3 style="color:#4f46e5;font-size:1.1rem;margin-bottom:10px;">Rapor Yükle (Word/PDF)</h3>
-            <form id="chatReportForm" enctype="multipart/form-data" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-                <input type="file" name="file" id="chatReportFile" accept=".pdf,.doc,.docx" required style="padding:7px;"/>
-                <input type="text" name="uploader" id="chatUploaderName" placeholder="Yükleyen Adı" required style="padding:7px;border-radius:8px;border:1px solid #e0e7ff;"/>
-                <button type="submit" style="padding:8px 18px;border-radius:18px;background:linear-gradient(135deg,#667eea 0%,#4f46e5 100%);color:#fff;border:none;font-weight:500;cursor:pointer;">Yükle</button>
-                <span id="chatReportMsg" style="margin-left:10px;font-size:1rem;"></span>
+        <div class="report-upload-section">
+            <form id="chatReportForm">
+                <div class="upload-area">
+                    <input type="file" name="file" id="chatReportFile" accept=".pdf,.doc,.docx" required hidden>
+                    <label for="chatReportFile" class="upload-label">
+                        <strong>Dosya Seçin</strong>
+                        <span>veya sürükleyip bırakın</span>
+                    </label>
+                    <span id="fileName" class="file-name-display"></span>
+                </div>
+                <div class="upload-fields">
+                    <input type="text" name="uploader" id="chatUploaderName" placeholder="Yükleyen Adı" required>
+                    <button type="submit">Yükle</button>
+                </div>
+                <span id="chatReportMsg"></span>
             </form>
         </div>
         <div class="chat-input-container">
@@ -149,57 +157,69 @@
         document.addEventListener('DOMContentLoaded', function() {
             const themeBtn = document.getElementById('themeBtn');
             const body = document.body;
-            const chatContainer = document.querySelector('.chat-container');
-            const chatHeader = document.querySelector('.chat-header');
-            const chatMessages = document.getElementById('chatMessages');
-            const chatInputContainer = document.querySelector('.chat-input-container');
-            const infoBox = document.getElementById('infoBox');
-            const chatInput = document.getElementById('messageInput');
-            const sendBtn = document.getElementById('sendBtn');
-            const typingIndicator = document.getElementById('typingIndicator');
+
             function setDark(dark) {
-                if(dark) {
+                if (dark) {
                     body.classList.add('dark');
-                    chatContainer.classList.add('dark');
-                    chatHeader.classList.add('dark');
-                    chatMessages.classList.add('dark');
-                    chatInputContainer.classList.add('dark');
-                    infoBox.classList.add('dark');
-                    chatInput.classList.add('dark');
-                    sendBtn.classList.add('dark');
-                    document.querySelectorAll('.message-content').forEach(e=>e.classList.add('dark'));
-                    document.querySelectorAll('.message-avatar').forEach(e=>e.classList.add('dark'));
-                    typingIndicator.classList.add('dark');
                     themeBtn.textContent = '☀️';
                     localStorage.setItem('theme', 'dark');
                 } else {
                     body.classList.remove('dark');
-                    chatContainer.classList.remove('dark');
-                    chatHeader.classList.remove('dark');
-                    chatMessages.classList.remove('dark');
-                    chatInputContainer.classList.remove('dark');
-                    infoBox.classList.remove('dark');
-                    chatInput.classList.remove('dark');
-                    sendBtn.classList.remove('dark');
-                    document.querySelectorAll('.message-content').forEach(e=>e.classList.remove('dark'));
-                    document.querySelectorAll('.message-avatar').forEach(e=>e.classList.remove('dark'));
-                    typingIndicator.classList.remove('dark');
                     themeBtn.textContent = '🌙';
                     localStorage.setItem('theme', 'light');
                 }
             }
-            let dark = localStorage.getItem('theme') === 'dark';
-            setDark(dark);
-            themeBtn.onclick = function() {
-                dark = !dark;
-                setDark(dark);
-            };
 
-            // Sohbet başlayınca infoBox'ı gizle
-            window.hideInfoBox = function() {
-                if(infoBox) infoBox.style.display = 'none';
+            let isDark = localStorage.getItem('theme') === 'dark';
+            setDark(isDark);
+
+            themeBtn.onclick = function() {
+                isDark = !isDark;
+                setDark(isDark);
             };
         });
+
+        window.hideInfoBox = function() {
+            const infoBox = document.getElementById('infoBox'); // Sadece burada tanımlanır
+            if(infoBox) infoBox.style.display = 'none';
+        };
+
+        // Dosya adı gösterme ve sürükle-bırak alanı için JS
+        const chatReportFile = document.getElementById('chatReportFile');
+        const uploadArea = document.querySelector('.upload-area');
+        const fileNameDisplay = document.getElementById('fileName');
+
+        chatReportFile.addEventListener('change', () => {
+            if (chatReportFile.files.length > 0) {
+                fileNameDisplay.textContent = chatReportFile.files[0].name;
+            } else {
+                fileNameDisplay.textContent = '';
+            }
+        });
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, e => {
+                e.preventDefault();
+                e.stopPropagation();
+            }, false);
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => {
+                uploadArea.classList.add('highlight');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => {
+                uploadArea.classList.remove('highlight');
+            }, false);
+        });
+
+        uploadArea.addEventListener('drop', e => {
+            chatReportFile.files = e.dataTransfer.files;
+            fileNameDisplay.textContent = chatReportFile.files[0].name;
+        }, false);
 
         document.getElementById('chatReportForm').addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -221,14 +241,23 @@
                 });
                 const data = await resp.json();
                 if (data.success) {
-                    msg.textContent = 'Rapor başarıyla yüklendi!';
+                    msg.textContent = 'Rapor başarıyla yüklendi ve işlendi.';
+                    msg.style.color = '#10B981'; // Green for success
+                    addMessage('bot', 'Belgeniz başarıyla işlendi. Şimdi bu belge hakkında sorularınızı sorabilirsiniz.');
                     fileInput.value = '';
                     uploaderInput.value = '';
                 } else {
-                    msg.textContent = data.message;
+                    msg.textContent = `Hata: ${data.message}`;
+                    msg.style.color = '#EF4444'; // Red for error
                 }
             } catch (err) {
-                msg.textContent = 'Yükleme sırasında hata oluştu.';
+                msg.textContent = 'Yükleme sırasında bir ağ hatası oluştu.';
+                msg.style.color = '#EF4444';
+            } finally {
+                // Hide the message after a few seconds
+                setTimeout(() => {
+                    msg.textContent = '';
+                }, 5000);
             }
         });
     </script>
