@@ -255,31 +255,27 @@ Kullanıcı mesajı: {message}
             if not query:
                 return "Lütfen belge içinde ne aramak istediğinizi belirtin."
 
-            # 1. Search for relevant document chunks
-            search_results = doc_processor.search_in_documents(query, top_k=3)
-            
-            if not search_results:
-                return "Yüklenmiş belgelerde bu konuyla ilgili bir bilgi bulamadım."
+            # Kullanıcının yüklediği raporları al
+            user_reports = database.get_reports(user_id)
+            if not user_reports:
+                return "Herhangi bir belge yüklemediniz. Lütfen önce bir belge yükleyin."
+            if len(user_reports) == 1:
+                # Tek belge varsa, doğrudan o belgeyle sorgula
+                report_id = user_reports[0]['id']
+                return self._explain_report(report_id, query, original_user_message, user_id)
+            else:
+                # Çoklu belge varsa, kullanıcıya seçim sun
+                report_options = [f"{r['id']}: {r['original_filename']}" for r in user_reports]
+                options_text = '\n'.join(report_options)
+                return f"Birden fazla belge bulundu. Lütfen açıklamak istediğiniz belgeyi seçin (ID ile):\n{options_text}\nÖrnek: belgeyi açıkla 12"
 
-            # 2. Construct context for the LLM
-            context_for_llm = "\n\n".join([result['text'] for result in search_results])
-            
-            # 3. Ask the LLM to generate a response based on the context
-            rag_prompt = f'''
-Kullanıcının sorusunu, aşağıda verilen belge içeriklerini kullanarak yanıtla. 
-Cevabını sadece bu içeriklere dayandır. Cevabını maddeler halinde (markdown listesi kullanarak) düzenli ve okunaklı bir şekilde formatla.
-Eğer cevap bu içeriklerde yoksa, 'Belgelerde bu konuda bilgi bulamadım' de.
-
-Belge İçerikleri:
-{context_for_llm}
-
-Kullanıcı Sorusu: {query}
-
-Yanıtın:
-'''
-            bot_response = self.ollama_chat(rag_prompt)
-            database.add_chat_history(user_id, "belge_sorgulama", original_user_message, bot_response, json.dumps({"sorgu": query, "context": "..."})) # Context'i kaydetmekten kaçınarak veritabanı boyutunu küçült
-            return bot_response
+        # Kullanıcı belge seçip tekrar sorduğunda (ör: belgeyi açıkla 12)
+        if tool == 'belge_sec_ve_acikla':
+            report_id = data.get('report_id')
+            query = data.get('sorgu', '')
+            if not report_id or not query:
+                return "Belge ID ve açıklama isteği gereklidir."
+            return self._explain_report(report_id, query, original_user_message, user_id)
 
         if tool == 'destek_talebi':
             department_input_from_llm = data.get('departman', '')
@@ -338,6 +334,29 @@ Yanıtın:
 
         bot_response = "Tool çağrısı tanınmadı veya işlenemedi."
         database.add_chat_history(user_id, "tool_hata", original_user_message, bot_response, json.dumps(data))
+        return bot_response
+
+    def _explain_report(self, report_id, query, original_user_message, user_id):
+        # Sadece seçili raporun chunk'larında arama yap
+        search_results = doc_processor.search_in_documents(query, top_k=3)
+        filtered_results = [r for r in search_results if str(r['report_id']) == str(report_id)]
+        if not filtered_results:
+            return "Seçili belgede bu konuyla ilgili bir bilgi bulamadım."
+        context_for_llm = "\n\n".join([result['text'] for result in filtered_results])
+        rag_prompt = f'''
+Kullanıcının sorusunu, aşağıda verilen belge içeriklerini kullanarak yanıtla. 
+Cevabını sadece bu içeriklere dayandır. Cevabını maddeler halinde (markdown listesi kullanarak) düzenli ve okunaklı bir şekilde formatla.
+Eğer cevap bu içeriklerde yoksa, 'Belgelerde bu konuda bilgi bulamadım' de.
+
+Belge İçerikleri:
+{context_for_llm}
+
+Kullanıcı Sorusu: {query}
+
+Yanıtın:
+'''
+        bot_response = self.ollama_chat(rag_prompt)
+        database.add_chat_history(user_id, "belge_sorgulama", original_user_message, bot_response, json.dumps({"sorgu": query, "report_id": report_id}))
         return bot_response
 
     def get_history(self, user_id: str):

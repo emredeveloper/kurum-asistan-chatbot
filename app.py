@@ -171,6 +171,31 @@ def delete_report_route(report_id):
         print(f"Error deleting report {report_id}: {e}") # Log for debugging
         return jsonify({'success': False, 'message': f'Rapor silinirken bir hata oluştu: {str(e)}'}), 500
 
+@app.route('/delete_all_reports', methods=['DELETE'])
+def delete_all_reports():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Yetkisiz erişim.'}), 401
+    try:
+        # 1. Tüm raporları veritabanından çek
+        all_reports = database.get_reports()
+        # 2. Her bir raporun dosyasını sil
+        for report in all_reports:
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], report['stored_filename'])
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            # 3. FAISS vektörlerinden sil
+            doc_processor.delete_document(report['id'])
+        # 4. Veritabanından tüm raporları sil
+        conn = database.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM uploaded_reports')
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'Tüm raporlar ve ilişkili veriler silindi.'})
+    except Exception as e:
+        print(f"Error deleting all reports: {e}")
+        return jsonify({'success': False, 'message': f'Tüm raporlar silinirken bir hata oluştu: {str(e)}'}), 500
+
 if __name__ == '__main__':
     # Initialize the database when running the app directly
     database.init_db()

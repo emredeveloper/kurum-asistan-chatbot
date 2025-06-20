@@ -13,3 +13,4 @@ pypdf
 python-docx
 sentence-transformers
 faiss-cpu
+PyMuPDF

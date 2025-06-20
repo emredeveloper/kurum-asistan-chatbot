@@ -52,6 +52,7 @@
         </div>
     </div>
 
+    <script src="/static/marked.min.js"></script>
     <script>
         let conversationStarted = false;
 
@@ -68,16 +69,67 @@
             const messagesContainer = document.getElementById('chatMessages');
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${sender}`;
-            
             const avatar = sender === 'user' ? '👤' : '🤖';
-            
+            let renderedContent = content;
+            // Belge seçimi için özel kontrol
+            if (sender === 'bot' && typeof content === 'string' && content.includes('Birden fazla belge bulundu. Lütfen açıklamak istediğiniz belgeyi seçin')) {
+                // Belge seçeneklerini ayıkla
+                const lines = content.split('\n');
+                const options = lines.filter(l => l.match(/^\d+: /));
+                const info = lines[0];
+                const example = lines.find(l => l.includes('Örnek:'));
+                let btns = '';
+                options.forEach(opt => {
+                    const [id, ...rest] = opt.split(':');
+                    const name = rest.join(':').trim();
+                    btns += `<button class='select-report-btn' data-reportid='${id.trim()}' style='margin:4px 6px 4px 0;'>${name}</button>`;
+                });
+                renderedContent = `<div style='margin-bottom:8px;'>${info}</div><div>${btns}</div><div style='font-size:0.95em;color:#aaa;margin-top:6px;'>${example || ''}</div>`;
+            } else if (sender === 'bot' && window.marked) {
+                renderedContent = marked.parse(content);
+            }
             messageDiv.innerHTML = `
                 <div class="message-avatar">${avatar}</div>
-                <div class="message-content">${content}</div>
+                <div class="message-content">${renderedContent}</div>
             `;
-            
             messagesContainer.appendChild(messageDiv);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            // Belge seçimi butonlarına event ekle
+            if (sender === 'bot' && content && content.includes('Birden fazla belge bulundu. Lütfen açıklamak istediğiniz belgeyi seçin')) {
+                document.querySelectorAll('.select-report-btn').forEach(btn => {
+                    btn.onclick = function() {
+                        const reportId = this.getAttribute('data-reportid');
+                        const lastUserMsg = getLastUserMessage();
+                        if (!lastUserMsg) return;
+                        sendReportExplainRequest(reportId, lastUserMsg);
+                    };
+                });
+            }
+        }
+
+        function getLastUserMessage() {
+            // Son kullanıcı mesajını bulmak için chatMessages içindeki son .message.user'ı bul
+            const messages = Array.from(document.querySelectorAll('.message.user .message-content'));
+            if (messages.length === 0) return '';
+            return messages[messages.length - 1].textContent;
+        }
+
+        async function sendReportExplainRequest(reportId, userMsg) {
+            showTypingIndicator();
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: JSON.stringify({ tool: 'belge_sec_ve_acikla', report_id: reportId, sorgu: userMsg }) })
+                });
+                const data = await response.json();
+                hideTypingIndicator();
+                addMessage('bot', data.response);
+            } catch (error) {
+                hideTypingIndicator();
+                addMessage('bot', 'Belge açıklama isteği gönderilirken hata oluştu.');
+            }
         }
 
         function showTypingIndicator() {

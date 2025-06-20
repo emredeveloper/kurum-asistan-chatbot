@@ -43,6 +43,7 @@
             <div class="grid-item">
                 <h2>Yüklenen Raporlar</h2>
                 <div class="table-wrapper">
+                    <button id="deleteAllBtn" class="delete-btn" style="margin-bottom:10px;">Tümünü Kalıcı Sil</button>
                     <table>
                         <thead>
                             <tr>
@@ -202,6 +203,29 @@
                 alert("Rapor silinirken bir ağ hatası oluştu.");
             }
         }
+
+        // Tümünü Sil butonu
+        document.addEventListener('DOMContentLoaded', function() {
+            const deleteAllBtn = document.getElementById('deleteAllBtn');
+            if (deleteAllBtn) {
+                deleteAllBtn.onclick = async function() {
+                    if (!confirm("Tüm raporları ve ilişkili verileri kalıcı olarak silmek istediğinizden emin misiniz?")) return;
+                    try {
+                        const response = await fetch('/delete_all_reports', { method: 'DELETE' });
+                        const result = await response.json();
+                        if (result.success) {
+                            // Tablodan tüm satırları kaldır
+                            document.getElementById('reportsTable').innerHTML = '<tr><td colspan="4">Henüz rapor yüklenmemiş.</td></tr>';
+                            alert('Tüm raporlar ve ilişkili veriler başarıyla silindi.');
+                        } else {
+                            alert('Hata: ' + result.message);
+                        }
+                    } catch (error) {
+                        alert('Silme işlemi sırasında hata oluştu.');
+                    }
+                }
+            }
+        });
     </script>
 </body>
 </html>

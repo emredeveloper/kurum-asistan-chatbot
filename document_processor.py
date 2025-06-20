@@ -8,6 +8,7 @@ from sentence_transformers import SentenceTransformer
 import faiss
 import json
 import database
+import fitz  # PyMuPDF
 
 # Use a common, high-performance model suitable for multilingual or Turkish content if possible
 # For this example, 'all-MiniLM-L6-v2' is a good starting point.
@@ -53,8 +54,29 @@ class DocumentProcessor:
         text = ""
         with open(file_path, "rb") as f:
             reader = pypdf.PdfReader(f)
-            for page in reader.pages:
-                text += page.extract_text() or ""
+            for page_num, page in enumerate(reader.pages):
+                page_text = page.extract_text() or ""
+                if not page_text.strip():
+                    print(f"[RAG-WARN] PDF sayfa {page_num+1} boş veya metin çıkarılamadı.")
+                text += page_text
+        if not text.strip():
+            print(f"[RAG-ERROR] PDF'den hiç metin çıkarılamadı: {file_path}")
+            print(f"[RAG-INFO] PyMuPDF ile tekrar deneniyor...")
+            try:
+                doc = fitz.open(file_path)
+                pymupdf_text = ""
+                for page_num, page in enumerate(doc):
+                    page_text = page.get_text()
+                    if not page_text.strip():
+                        print(f"[RAG-WARN] PyMuPDF ile de sayfa {page_num+1} boş veya metin çıkarılamadı.")
+                    pymupdf_text += page_text
+                text = pymupdf_text
+                if text.strip():
+                    print(f"[RAG-INFO] PyMuPDF ile metin çıkarıldı, uzunluk: {len(text)} karakter")
+                else:
+                    print(f"[RAG-ERROR] PyMuPDF ile de metin çıkarılamadı: {file_path}")
+            except Exception as e:
+                print(f"[RAG-ERROR] PyMuPDF ile metin çıkarılırken hata: {e}")
         return text
 
     def _extract_text_from_docx(self, file_path):
@@ -91,22 +113,30 @@ class DocumentProcessor:
         `report_id` is the ID from the 'reports' table in the database.
         """
         try:
+            print(f"[RAG-DEBUG] İşleme başlandı: {file_path}, report_id: {report_id}")
             file_path = Path(file_path)
             if not file_path.exists():
+                print(f"[RAG-ERROR] Dosya bulunamadı: {file_path}")
                 raise FileNotFoundError(f"File not found: {file_path}")
 
             if file_path.suffix.lower() == '.pdf':
                 text = self._extract_text_from_pdf(file_path)
+                print(f"[RAG-DEBUG] PDF'den metin çıkarıldı, uzunluk: {len(text)} karakter")
             elif file_path.suffix.lower() in ['.doc', '.docx']:
                 text = self._extract_text_from_docx(file_path)
+                print(f"[RAG-DEBUG] DOCX'den metin çıkarıldı, uzunluk: {len(text)} karakter")
             else:
+                print(f"[RAG-ERROR] Desteklenmeyen dosya tipi: {file_path.suffix}")
                 return # Unsupported file type
 
             chunks = self._split_text(text)
+            print(f"[RAG-DEBUG] Metin {len(chunks)} parçaya bölündü.")
             if not chunks:
+                print(f"[RAG-ERROR] Metin parçalara ayrılamadı veya boş.")
                 return
 
             embeddings = self.model.encode(chunks, convert_to_tensor=False)
+            print(f"[RAG-DEBUG] Embeddingler oluşturuldu. Boyut: {len(embeddings)}")
             
             # Check if index exists and its dimension matches
             d = self.model.get_sentence_embedding_dimension()
@@ -199,4 +229,4 @@ class DocumentProcessor:
         print(f"Removed report {report_id_to_delete} from FAISS index.")
 
 # Singleton instance
-processor = DocumentProcessor() 
+processor = DocumentProcessor()
