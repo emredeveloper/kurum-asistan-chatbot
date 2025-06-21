@@ -30,9 +30,9 @@ Kurumiçi süreçleri kolaylaştıran, LLM (yerel Ollama) tabanlı, modern ve fo
    ```
    OPENWEATHER_API_KEY=API_ANAHTARINIZ
    ```
-5. Ollama ile bir LLM modeli çalıştırın (örn: devstral-small veya llama3:8b):
+5. Ollama ile bir LLM modeli çalıştırın https://ollama.com/search?c=tools  bu siteden tools destekli bir model olmalı :
    ```bash
-   ollama run llama3:8b
+   ollama run qwen3:8b
    ```
 6. Uygulamayı başlatın:
    ```bash
