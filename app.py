@@ -56,6 +56,10 @@ def chat():
 def dashboard():
     return render_template('dashboard.html')
 
+@app.route('/tutorial')
+def tutorial():
+    return render_template('tutorial.html')
+
 @app.route('/api/issues')
 def get_issues():
     return jsonify(bot.get_citizen_dashboard())

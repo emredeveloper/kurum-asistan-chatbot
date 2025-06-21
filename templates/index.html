@@ -14,7 +14,24 @@
             </div>
             <h1>🤖 Kurum İçi Asistan</h1>
             <p>Kurumiçi akıllı asistanınız: Destek, bilgi ve işlemler için size yardımcı olur.</p>
-            <button class="dashboard-btn" onclick="openDashboard()">📊 Dashboard</button>
+            <div style="display: flex; gap: 12px; justify-content: center; margin-top: 16px;">
+                <button class="dashboard-btn" onclick="openTutorial()">📖 Özellikler</button>
+                <button class="dashboard-btn" onclick="openDashboard()">📊 Dashboard</button>
+            </div>
+        </div>
+
+        <div class="info-box" id="infoBox">
+            <div class="info-content">
+                <button class="info-close" onclick="hideInfoBox()">×</button>
+                <h3>🤖 Merhaba! Ben Kurum Asistanı</h3>
+                <p>Size aşağıdaki konularda yardımcı olabilirim:</p>
+                <ul>
+                    <li>🌤️ Güncel hava durumu bilgisi alabilirim</li>
+                    <li>💼 Destek talebi oluşturabilirim</li>
+                    <li>🏢 Kurum içi bilgi tabanımızdan sorularınızı yanıtlayabilirim</li>
+                    <li>📄 Belgelerinizi (Word/PDF) yükleyip, içerikleri hakkında sorular sorabilirsiniz</li>
+                </ul>
+            </div>
         </div>
 
         <div class="chat-messages" id="chatMessages">
@@ -56,14 +73,8 @@
     <script>
         let conversationStarted = false;
 
-        async function initChat() {
-            if (!conversationStarted) {
-                const response = await fetch('/welcome');
-                const data = await response.json();
-                addMessage('bot', data.response);
-                conversationStarted = true;
-            }
-        }
+        // Welcome mesajı artık info-box olarak gösteriliyor
+        // initChat fonksiyonu artık gerekli değil
 
         function addMessage(sender, content) {
             const messagesContainer = document.getElementById('chatMessages');
@@ -146,9 +157,15 @@
             const message = input.value.trim();
             if (!message) return;
 
-            // Info kutusunu gizle
-            const infoBox = document.getElementById('infoBox');
-            if (infoBox) infoBox.style.display = 'none';
+            // İlk mesajda info kutusunu gizle
+            if (!conversationStarted) {
+                const infoBox = document.getElementById('infoBox');
+                if (infoBox) {
+                    infoBox.style.animation = 'slideUp 0.3s ease-out forwards';
+                    setTimeout(() => infoBox.style.display = 'none', 300);
+                }
+                conversationStarted = true;
+            }
 
             // Disable input and button
             input.disabled = true;
@@ -199,9 +216,12 @@
             window.open('/dashboard', '_blank');
         }
 
-        // Initialize chat when page loads
+        function openTutorial() {
+            window.open('/tutorial', '_blank');
+        }
+
+        // Initialize page when loaded
         document.addEventListener('DOMContentLoaded', function() {
-            initChat();
             document.getElementById('messageInput').focus();
         });
 
