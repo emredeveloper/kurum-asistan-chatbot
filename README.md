@@ -30,6 +30,7 @@
    ```
    OPENWEATHER_API_KEY=API_ANAHTARINIZ
    ```
+<<<<<<< HEAD
 5. LM Studio ile bir LLM modeli çalıştırın ve OpenAI uyumlu API'yi etkinleştirin:
    - LM Studio'yu açın ve tercih ettiğiniz modeli başlatın.
    - Server (OpenAI Compatible) özelliğini aktif edin. Varsayılan taban URL genelde `http://localhost:1234/v1` olur.
@@ -40,6 +41,12 @@
      # LM_STUDIO_API_KEY=opsiyonel
      OPENWEATHER_API_KEY=API_ANAHTARINIZ
      ```
+=======
+5. Ollama ile bir LLM modeli çalıştırın https://ollama.com/search?c=tools  bu siteden tools destekli bir model olmalı :
+   ```bash
+   ollama run qwen3:8b
+   ```
+>>>>>>> 34a98a8b86e4f910e296f20344d84fb16bf1934d
 6. Uygulamayı başlatın:
    ```bash
    python app.py
