@@ -1,9 +1,9 @@
 # Kurum İçi Akıllı Asistan Chatbotu
 
-Kurumiçi süreçleri kolaylaştıran, LLM (yerel Ollama) tabanlı, modern ve fonksiyonel bir sohbet asistanı. Hava durumu, kurum içi bilgi, destek talebi, belge yükleme ve daha fazlası tek ekranda!
+ Kurumiçi süreçleri kolaylaştıran, LLM (yerel LM Studio/OpenAI uyumlu API) tabanlı, modern ve fonksiyonel bir sohbet asistanı. Hava durumu, kurum içi bilgi, destek talebi, belge yükleme ve daha fazlası tek ekranda!
 
 ## Özellikler
-- 🤖 **LLM tabanlı doğal dilde sohbet** (Ollama ile yerel model)
+- 🤖 **LLM tabanlı doğal dilde sohbet** (LM Studio/OpenAI uyumlu API ile yerel model)
 - 🔗 **Çoklu tool/fonksiyon zinciri**: Hava durumu, kurum içi bilgi, destek talebi, belge yükleme
 - 🏢 **Kurum içi bilgi tabanı**: Sık sorulanlar, prosedürler, politikalar
 - 🌤️ **Hava durumu sorgulama** (OpenWeatherMap API)
@@ -30,10 +30,16 @@ Kurumiçi süreçleri kolaylaştıran, LLM (yerel Ollama) tabanlı, modern ve fo
    ```
    OPENWEATHER_API_KEY=API_ANAHTARINIZ
    ```
-5. Ollama ile bir LLM modeli çalıştırın (örn: devstral-small veya llama3:8b):
-   ```bash
-   ollama run llama3:8b
-   ```
+5. LM Studio ile bir LLM modeli çalıştırın ve OpenAI uyumlu API'yi etkinleştirin:
+   - LM Studio'yu açın ve tercih ettiğiniz modeli başlatın.
+   - Server (OpenAI Compatible) özelliğini aktif edin. Varsayılan taban URL genelde `http://localhost:1234/v1` olur.
+   - `.env` dosyanıza aşağıdaki değişkenleri ekleyin (örnek değerlerle):
+     ```
+     LM_STUDIO_BASE_URL=http://localhost:1234/v1
+     LM_STUDIO_MODEL=Llama-3.1-8B-Instruct
+     # LM_STUDIO_API_KEY=opsiyonel
+     OPENWEATHER_API_KEY=API_ANAHTARINIZ
+     ```
 6. Uygulamayı başlatın:
    ```bash
    python app.py

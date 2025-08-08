@@ -11,8 +11,13 @@ from document_processor import processor as doc_processor # Import the document 
 
 load_dotenv()
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "gemma3:12b"
+# LM Studio (OpenAI uyumlu) yapılandırması
+# Örn: LM_STUDIO_BASE_URL=http://localhost:1234/v1
+#      LM_STUDIO_MODEL=YourModelName
+#      LM_STUDIO_API_KEY=lm-studio (gerekmeyebilir)
+LM_STUDIO_BASE_URL = os.getenv("LM_STUDIO_BASE_URL", "http://localhost:1234/v1")
+LM_STUDIO_MODEL = os.getenv("LM_STUDIO_MODEL", "openai/gpt-oss-20b")
+LM_STUDIO_API_KEY = os.getenv("LM_STUDIO_API_KEY", "")
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "BURAYA_API_KEY_GIRIN")
 
 class CitizenAssistantBot:
@@ -29,24 +34,51 @@ class CitizenAssistantBot:
         # self.histories and self.all_support_tickets are now removed
         # User states are kept in memory for the duration of a session's multi-turn interactions
         self.user_states = {}
+        self.user_models = {}
 
-    def ollama_chat(self, prompt: str) -> str:
+    def set_user_model(self, user_id: str, model_name: str | None):
+        if not user_id:
+            return
+        if model_name and isinstance(model_name, str) and model_name.strip():
+            self.user_models[user_id] = model_name.strip()
+        else:
+            # Reset to default if empty
+            if user_id in self.user_models:
+                del self.user_models[user_id]
+
+    def ollama_chat(self, prompt: str, model: str | None = None) -> str:
+        """LM Studio'nun OpenAI uyumlu Chat Completions API'sini kullanır.
+
+        İsim geriye dönük uyumluluk için korunmuştur (testler bu ismi mock'luyor).
+        """
         try:
-            response = requests.post(
-                OLLAMA_URL,
-                json={"model": OLLAMA_MODEL, "prompt": prompt},
-                stream=True
-            )
-            full_response = ""
-            for line in response.iter_lines():
-                if line:
-                    try:
-                        data = json.loads(line.decode("utf-8"))
-                        if "response" in data:
-                            full_response += data["response"]
-                    except Exception:
-                        continue
-            return full_response if full_response else "LLM'den yanıt alınamadı."
+            url = f"{LM_STUDIO_BASE_URL}/chat/completions"
+            headers = {"Content-Type": "application/json"}
+            if LM_STUDIO_API_KEY:
+                headers["Authorization"] = f"Bearer {LM_STUDIO_API_KEY}"
+
+            payload = {
+                "model": (model or LM_STUDIO_MODEL),
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.2,
+                "stream": False
+            }
+            response = requests.post(url, headers=headers, json=payload, timeout=120)
+            response.raise_for_status()
+            data = response.json()
+
+            # OpenAI uyumlu yanıttan içerik çıkarma
+            choices = data.get("choices", [])
+            if choices and "message" in choices[0] and choices[0]["message"].get("content"):
+                return choices[0]["message"]["content"].strip()
+
+            # Eski /v1/completions uyumluluğu için fallback (bazı LM Studio sürümleri text döndürebilir)
+            if choices and choices[0].get("text"):
+                return choices[0]["text"].strip()
+
+            return "LLM'den yanıt alınamadı."
         except Exception as e:
             return f"LLM hatası: {e}"
 
@@ -66,6 +98,8 @@ class CitizenAssistantBot:
             return f"Hava durumu hatası: {e}"
 
     def normalize_dept(self, text: str) -> str:
+        if not isinstance(text, str):
+            return ""
         text = text.replace("İ", "i") # Convert uppercase dotted I to lowercase i
         text = text.replace("I", "i") # Convert uppercase dotless I to lowercase i (Turkish 'ı' becomes 'i')
         text = text.lower() # Convert to lowercase
@@ -155,11 +189,18 @@ class CitizenAssistantBot:
             user_state['last_department'] = matched_dept
             user_state['waiting_for_department'] = False
             user_state['waiting_for_description'] = True
-            bot_response = "Lütfen destek talebinizin açıklamasını yazar mısınız?"
+            bot_response = f"{matched_dept} departmanı için destek talebi oluşturuyorum. Lütfen talebinizin açıklamasını yazar mısınız?"
             database.add_chat_history(user_id, "destek_talebi_etkileşim", message, bot_response)
             return bot_response
 
-        # LLM ile tool chain/fonksiyon çağrısı
+        # 0) Hızlı bilgi tabanı kontrolü (LLM'e gitmeden önce)
+        kb_answer = self.get_kurum_bilgisi(message)
+        if kb_answer and kb_answer != "Bu konuda bilgi bulunamadı.":
+            bot_response = kb_answer
+            database.add_chat_history(user_id, "kurum_bilgisi_heuristic", message, bot_response, json.dumps({"matched": True}))
+            return bot_response
+
+        # 1) LLM ile tool chain/fonksiyon çağrısı
         llm_prompt = f'''
 Aşağıda son konuşma geçmişi ve yeni kullanıcı mesajı var. Eğer bir veya birden fazla tool çağrısı gerekiyorsa bana şu formatta JSON döndür:
 Tek tool için: {{"tool": "hava_durumu", "sehir": "İstanbul"}}
@@ -174,9 +215,10 @@ Son konuşma geçmişi:
 
 Kullanıcı mesajı: {message}
 '''
-        llm_response = self.ollama_chat(llm_prompt)
+        llm_response = self.ollama_chat(llm_prompt, model=self.user_models.get(user_id))
+        # LLM çıktısından JSON çıkarma (kod bloğu veya metin içinde gömülü olabilir)
+        data = self._extract_json(llm_response)
         try:
-            data = json.loads(llm_response)
             # Çoklu tool chain desteği
             if isinstance(data, list):
                 results = []
@@ -229,9 +271,108 @@ Kullanıcı mesajı: {message}
             return bot_response
 
         # LLM ile sohbet (eğer tool/tarih değilse)
-        bot_response = self.ollama_chat(message) # Use original message for pure LLM chat
+        bot_response = self.ollama_chat(message, model=self.user_models.get(user_id)) # Use original message for pure LLM chat
         database.add_chat_history(user_id, "llm_cevap", message, bot_response)
         return bot_response
+
+    def _extract_json(self, text: str):
+        """Metin içinden JSON (dict veya list) güvenli şekilde çıkarmaya çalışır.
+
+        - Doğrudan json.loads ile dener
+        - Ardından ```json ... ``` veya ``` ... ``` bloklarını tarar
+        - Son olarak ilk dengeli {..} veya [..] bloğunu kaba regex ile yakalamayı dener
+        Başarısız olursa None döner.
+        """
+        if not text:
+            return None
+        # 1) Doğrudan JSON denemesi
+        try:
+            return json.loads(text)
+        except Exception:
+            pass
+
+        # 2) Kod bloğu içinde `json` veya normal üç tırnaklı bloklar
+        import re
+        code_block_pattern = re.compile(r"```(json)?\s*([\s\S]*?)```", re.IGNORECASE)
+        for match in code_block_pattern.finditer(text):
+            candidate = match.group(2).strip()
+            try:
+                return json.loads(candidate)
+            except Exception:
+                continue
+
+        # 3) İlk dengeli küme veya köşeli parantez içeriğini yakalama (kaba yaklaşım)
+        # Not: Bu, iç içe parantezlerde başarısız olabilir, ancak pratikte çoğu LLM çıktısında yeterli olur.
+        braces_match = re.search(r"\{[\s\S]*\}", text)
+        if braces_match:
+            candidate = braces_match.group(0)
+            try:
+                return json.loads(candidate)
+            except Exception:
+                pass
+
+        brackets_match = re.search(r"\[[\s\S]*\]", text)
+        if brackets_match:
+            candidate = brackets_match.group(0)
+            try:
+                return json.loads(candidate)
+            except Exception:
+                pass
+
+        return None
+
+    def get_citizen_dashboard(self):
+        """Dashboard özet verileri: destek talepleri, raporlar ve son etkileşimler.
+
+        Dönen yapı, frontend için kolay tüketilebilir bir özet sağlar.
+        """
+        try:
+            # Kullanıcı bağımsız genel özet
+            reports = database.get_reports()
+            total_reports = len(reports)
+            processed_reports = sum(1 for r in reports if r.get('processed') == 1)
+            unprocessed_reports = total_reports - processed_reports
+
+            # Destek taleplerinde durum dağılımı
+            # Tüm kullanıcılar için almak üzere direkt DB bağlantısıyla ufak sorgu
+            conn = database.get_db_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT status, COUNT(*) as cnt FROM support_tickets GROUP BY status")
+            status_rows = cur.fetchall()
+            conn.close()
+            ticket_status_counts = {row[0]: row[1] for row in status_rows} if status_rows else {}
+
+            # Son 10 sohbet girdisi (global) – tabloya kolayca doldurulabilmesi için
+            conn = database.get_db_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT user_id, type, user_message, bot_response, timestamp FROM chat_history ORDER BY timestamp DESC LIMIT 10")
+            last_interactions = [
+                {
+                    'user_id': row[0],
+                    'type': row[1],
+                    'user_message': row[2],
+                    'bot_response': row[3],
+                    'timestamp': row[4]
+                }
+                for row in cur.fetchall()
+            ]
+            conn.close()
+
+            return {
+                'reports': {
+                    'total': total_reports,
+                    'processed': processed_reports,
+                    'unprocessed': unprocessed_reports
+                },
+                'tickets': {
+                    'by_status': ticket_status_counts
+                },
+                'last_interactions': last_interactions
+            }
+        except Exception as e:
+            return {
+                'error': f'Dashboard verileri alınırken hata oluştu: {e}'
+            }
 
     def _handle_tool_call(self, data, original_user_message: str, user_id: str):
         user_state = self.user_states.setdefault(user_id, {})
@@ -258,6 +399,11 @@ Kullanıcı mesajı: {message}
             # Kullanıcının yüklediği raporları al
             user_reports = database.get_reports(user_id)
             if not user_reports:
+                # Eğer belge yoksa ama kurum içi bilgi tabanında bulunuyorsa, onu yanıtla
+                kb_fallback = self.get_kurum_bilgisi(query)
+                if kb_fallback and kb_fallback != "Bu konuda bilgi bulunamadı.":
+                    database.add_chat_history(user_id, "kurum_bilgisi_fallback", query, kb_fallback, json.dumps({"from": "belge_sorgulama"}))
+                    return kb_fallback
                 return "Herhangi bir belge yüklemediniz. Lütfen önce bir belge yükleyin."
             if len(user_reports) == 1:
                 # Tek belge varsa, doğrudan o belgeyle sorgula
@@ -278,7 +424,7 @@ Kullanıcı mesajı: {message}
             return self._explain_report(report_id, query, original_user_message, user_id)
 
         if tool == 'destek_talebi':
-            department_input_from_llm = data.get('departman', '')
+            department_input_from_llm = data.get('departman') or ''
             normalized_department_input_llm = self.normalize_dept(department_input_from_llm)
             matched_dept = None
             for dept_option in self.DEPARTMANLAR:
@@ -355,7 +501,7 @@ Kullanıcı Sorusu: {query}
 
 Yanıtın:
 '''
-        bot_response = self.ollama_chat(rag_prompt)
+        bot_response = self.ollama_chat(rag_prompt, model=self.user_models.get(user_id))
         database.add_chat_history(user_id, "belge_sorgulama", original_user_message, bot_response, json.dumps({"sorgu": query, "report_id": report_id}))
         return bot_response
 

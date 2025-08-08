@@ -13,10 +13,16 @@
                 <button id="themeBtn" class="theme-btn" title="Karanlık/Aydınlık Tema">🌙</button>
             </div>
             <h1>🤖 Kurum İçi Asistan</h1>
-            <p>Kurumiçi akıllı asistanınız: Destek, bilgi ve işlemler için size yardımcı olur.</p>
-            <div style="display: flex; gap: 12px; justify-content: center; margin-top: 16px;">
+            <p>Kurumiçi akıllı asistanınız: Destek, kurum bilgisi, belge ve günlük işlemler için yanınızda.</p>
+            <div style="display: flex; gap: 12px; justify-content: center; margin-top: 16px; flex-wrap: wrap;">
                 <button class="dashboard-btn" onclick="openTutorial()">📖 Özellikler</button>
                 <button class="dashboard-btn" onclick="openDashboard()">📊 Dashboard</button>
+                <div style="display:flex; gap:8px; align-items:center; background:#fff; color:#111; padding:4px 8px; border-radius:8px;">
+                    <label for="modelSelect" style="font-size:0.9rem; color:#374151;">Model:</label>
+                    <select id="modelSelect" class="chat-input" style="width:auto; padding:6px 10px;">
+                        <option>Yükleniyor...</option>
+                    </select>
+                </div>
             </div>
         </div>
 
@@ -39,7 +45,7 @@
         </div>
         
         <div class="typing-indicator" id="typingIndicator">
-            🤖 Citizen Assistant is typing...
+            🤖 Asistan yazıyor...
         </div>
         
         <div class="report-upload-section">
@@ -47,7 +53,7 @@
                 <div class="upload-area">
                     <input type="file" name="file" id="chatReportFile" accept=".pdf,.doc,.docx" required hidden>
                     <label for="chatReportFile" class="upload-label">
-                        <strong>Dosya Seçin</strong>
+                        <strong>Belge seçin</strong>
                         <span>veya sürükleyip bırakın</span>
                     </label>
                     <span id="fileName" class="file-name-display"></span>
@@ -197,7 +203,7 @@
 
             } catch (error) {
                 hideTypingIndicator();
-                addMessage('bot', 'Sorry, there was an error processing your message. Please try again.');
+                addMessage('bot', 'Üzgünüm, mesaj işlenirken bir hata oluştu. Lütfen tekrar deneyin.');
             }
 
             // Re-enable input and button
@@ -221,8 +227,28 @@
         }
 
         // Initialize page when loaded
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', async function() {
             document.getElementById('messageInput').focus();
+            // Model listesini çek
+            try {
+                const resp = await fetch('/api/models');
+                const data = await resp.json();
+                const sel = document.getElementById('modelSelect');
+                sel.innerHTML = '';
+                (data.available || []).forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m;
+                    opt.textContent = m;
+                    if (data.current && data.current === m) opt.selected = true;
+                    sel.appendChild(opt);
+                });
+                sel.onchange = async function() {
+                    const chosen = sel.value;
+                    await fetch('/api/model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: chosen }) });
+                };
+            } catch (e) {
+                console.warn('Model listesi alınamadı', e);
+            }
         });
 
         // Tema toggle ve localStorage

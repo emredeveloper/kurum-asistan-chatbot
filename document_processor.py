@@ -4,8 +4,6 @@ from pathlib import Path
 import numpy as np
 import pypdf
 import docx
-from sentence_transformers import SentenceTransformer
-import faiss
 import json
 import database
 import fitz  # PyMuPDF
@@ -22,7 +20,10 @@ if not os.path.exists(VECTOR_STORE_PATH):
 
 class DocumentProcessor:
     def __init__(self):
-        self.model = SentenceTransformer(MODEL_NAME)
+        # Model'i lazy yükleyelim (ilk ihtiyaç anında)
+        self.model_name = MODEL_NAME
+        self.model = None
+        self.faiss = None
         self.index = None
         self.metadata = []
         self._load()
@@ -30,23 +31,23 @@ class DocumentProcessor:
     def _load(self):
         if os.path.exists(INDEX_FILE) and os.path.exists(METADATA_FILE):
             try:
-                self.index = faiss.read_index(INDEX_FILE)
+                self._ensure_faiss()
+                if self.faiss is not None:
+                    self.index = self.faiss.read_index(INDEX_FILE)
                 with open(METADATA_FILE, 'r', encoding='utf-8') as f:
                     self.metadata = json.load(f)
             except Exception as e:
                 print(f"Could not load existing index or metadata: {e}")
                 self.index = None
                 self.metadata = []
-        
-        if self.index is None:
-            # Get dimension from model
-            d = self.model.get_sentence_embedding_dimension()
-            self.index = faiss.IndexFlatL2(d)  # Using L2 distance for similarity
-            self.metadata = []
+        # Index yoksa burada oluşturmayalım; ilk ihtiyaç anında boyutu bilip oluşturacağız
 
 
     def _save(self):
-        faiss.write_index(self.index, INDEX_FILE)
+        # FAISS yoksa veya index yoksa sadece metadata'yı kaydet
+        self._ensure_faiss()
+        if self.faiss is not None and self.index is not None:
+            self.faiss.write_index(self.index, INDEX_FILE)
         with open(METADATA_FILE, 'w', encoding='utf-8') as f:
             json.dump(self.metadata, f, ensure_ascii=False, indent=4)
 
@@ -107,6 +108,22 @@ class DocumentProcessor:
                 final_chunks.append(chunk.strip())
         return final_chunks
 
+    def _ensure_model(self):
+        if self.model is None:
+            try:
+                from sentence_transformers import SentenceTransformer
+                self.model = SentenceTransformer(self.model_name)
+            except Exception as e:
+                raise RuntimeError(f"Embedding modeli yüklenemedi: {e}")
+
+    def _ensure_faiss(self):
+        if self.faiss is None:
+            try:
+                import faiss
+                self.faiss = faiss
+            except Exception:
+                self.faiss = None
+
     def process_and_embed_document(self, file_path, report_id):
         """
         Processes a single document, extracts text, creates embeddings, and adds to FAISS.
@@ -135,13 +152,18 @@ class DocumentProcessor:
                 print(f"[RAG-ERROR] Metin parçalara ayrılamadı veya boş.")
                 return
 
+            self._ensure_model()
             embeddings = self.model.encode(chunks, convert_to_tensor=False)
             print(f"[RAG-DEBUG] Embeddingler oluşturuldu. Boyut: {len(embeddings)}")
             
             # Check if index exists and its dimension matches
             d = self.model.get_sentence_embedding_dimension()
-            if self.index is None or self.index.d != d:
-                self.index = faiss.IndexFlatL2(d)
+            if self.index is None or getattr(self.index, 'd', None) != d:
+                self._ensure_faiss()
+                if self.faiss is None:
+                    print("[RAG-WARN] FAISS bulunamadı; belge indeksleme devre dışı.")
+                    return
+                self.index = self.faiss.IndexFlatL2(d)
                 self.metadata = []
 
 
@@ -166,11 +188,15 @@ class DocumentProcessor:
         """
         Searches for a query across all processed documents.
         """
-        if self.index is None or self.index.ntotal == 0:
+        if self.index is None or getattr(self.index, 'ntotal', 0) == 0:
             return []
         
+        self._ensure_model()
         query_embedding = self.model.encode([query], convert_to_tensor=False)
-        distances, indices = self.index.search(np.array(query_embedding).astype('float32'), top_k)
+        try:
+            distances, indices = self.index.search(np.array(query_embedding).astype('float32'), top_k)
+        except Exception:
+            return []
         
         results = []
         for i, idx in enumerate(indices[0]):
@@ -210,21 +236,32 @@ class DocumentProcessor:
             if i not in ids_to_remove
         ]
         
-        if not new_metadata: # If no vectors are left
-            self.index.reset()
-        else:
-            # Reconstruct the index with the remaining vectors
-            vectors_to_keep_indices = [
-                i for i in range(self.index.ntotal) if i not in ids_to_remove
-            ]
-            
-            # This operation can be slow with reconstruct_n on large indexes
-            remaining_vectors = self.index.reconstruct_n(0, self.index.ntotal)[vectors_to_keep_indices]
-            
-            self.index.reset()
-            self.index.add(remaining_vectors)
+        # Rebuild the index from preserved metadata order
+        preserved_metadata = [
+            meta for i, meta in enumerate(self.metadata)
+            if i not in ids_to_remove
+        ]
 
-        self.metadata = new_metadata
+        # FAISS IndexFlatL2 doğrudan silmeyi desteklemediği için tüm vektörleri yeniden ekle
+        self._ensure_model()
+        self._ensure_faiss()
+        if self.faiss is None:
+            print("[RAG-WARN] FAISS bulunamadı; silme işleminden sonra index yeniden oluşturulamadı.")
+            self.metadata = preserved_metadata
+            self._save()
+            return
+        d = self.model.get_sentence_embedding_dimension()
+        new_index = self.faiss.IndexFlatL2(d)
+
+        if preserved_metadata:
+            preserved_texts = [meta['text'] for meta in preserved_metadata]
+            preserved_vectors = self.model.encode(preserved_texts, convert_to_tensor=False)
+            new_index.add(np.array(preserved_vectors).astype('float32'))
+
+        # Index ve metadata'yı güncelle
+        self.index = new_index
+        self.metadata = preserved_metadata
+
         self._save()
         print(f"Removed report {report_id_to_delete} from FAISS index.")
 
