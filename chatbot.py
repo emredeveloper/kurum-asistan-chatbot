@@ -200,6 +200,29 @@ class CitizenAssistantBot:
             database.add_chat_history(user_id, "kurum_bilgisi_heuristic", message, bot_response, json.dumps({"matched": True}))
             return bot_response
 
+        # 0.5) Hızlı özetleme heuristiği (LLM'e gitmeden önce)
+        lower_msg = message.lower()
+        if any(kw in lower_msg for kw in ["özet", "özetle", "özetini", "özet çıkar", "kısaca özet"]):
+            user_reports = database.get_reports(user_id)
+            if not user_reports:
+                bot_response = "Herhangi bir belge yüklemediniz. Lütfen önce bir belge yükleyin."
+                database.add_chat_history(user_id, "belge_ozet_hata", message, bot_response)
+                return bot_response
+            if len(user_reports) == 1:
+                report_id = user_reports[0]['id']
+                return self._summarize_report(report_id, message, user_id)
+            else:
+                # Mevcut UI seçim butonlarıyla uyum için aynı metni kullanıyoruz
+                report_options = [f"{r['id']}: {r['original_filename']}" for r in user_reports]
+                options_text = '\n'.join(report_options)
+                bot_response = (
+                    "Birden fazla belge bulundu. Lütfen açıklamak istediğiniz belgeyi seçin (ID ile):\n"
+                    f"{options_text}\n"
+                    "Örnek: belgeyi açıkla 12"
+                )
+                database.add_chat_history(user_id, "belge_ozet_secim", message, bot_response)
+                return bot_response
+
         # 1) LLM ile tool chain/fonksiyon çağrısı
         llm_prompt = f'''
 Aşağıda son konuşma geçmişi ve yeni kullanıcı mesajı var. Eğer bir veya birden fazla tool çağrısı gerekiyorsa bana şu formatta JSON döndür:
@@ -208,6 +231,7 @@ Tek tool için: {{"tool": "hava_durumu", "sehir": "İstanbul"}}
 Kurum içi bilgi için: {{"tool": "kurum_bilgisi", "soru": "seyahat politikası"}}
 Destek talebi için: {{"tool": "destek_talebi", "departman": "IT", "aciklama": "Bilgisayarım bozuldu", "aciliyet": "acil", "kategori": "donanım"}}
 Belge sorgulamak için: {{"tool": "belge_sorgulama", "sorgu": "Yıllık izin prosedürü nedir?"}}
+Belge özetlemek için: {{"tool": "belge_ozetle"}}
 Eğer tool çağrısı yoksa sadece normal cevabını ver.
 
 Son konuşma geçmişi:
@@ -415,12 +439,31 @@ Kullanıcı mesajı: {message}
                 options_text = '\n'.join(report_options)
                 return f"Birden fazla belge bulundu. Lütfen açıklamak istediğiniz belgeyi seçin (ID ile):\n{options_text}\nÖrnek: belgeyi açıkla 12"
 
+        if tool == 'belge_ozetle':
+            # Kullanıcının yüklediği raporları alıp tekse özetle, çoksa seçim iste
+            user_reports = database.get_reports(user_id)
+            if not user_reports:
+                bot_response = "Herhangi bir belge yüklemediniz. Lütfen önce bir belge yükleyin."
+                database.add_chat_history(user_id, "belge_ozet_hata", original_user_message, bot_response)
+                return bot_response
+            if len(user_reports) == 1:
+                report_id = user_reports[0]['id']
+                return self._summarize_report(report_id, original_user_message, user_id)
+            else:
+                report_options = [f"{r['id']}: {r['original_filename']}" for r in user_reports]
+                options_text = '\n'.join(report_options)
+                return f"Birden fazla belge bulundu. Lütfen açıklamak istediğiniz belgeyi seçin (ID ile):\n{options_text}\nÖrnek: belgeyi açıkla 12"
+
         # Kullanıcı belge seçip tekrar sorduğunda (ör: belgeyi açıkla 12)
         if tool == 'belge_sec_ve_acikla':
             report_id = data.get('report_id')
             query = data.get('sorgu', '')
             if not report_id or not query:
                 return "Belge ID ve açıklama isteği gereklidir."
+            # Eğer kullanıcı mesajı bir özet talebi ise, açıklama yerine özet üret
+            lower_q = str(query).lower()
+            if any(kw in lower_q for kw in ["özet", "özetle", "özetini", "özet çıkar", "kısaca özet"]):
+                return self._summarize_report(report_id, original_user_message, user_id)
             return self._explain_report(report_id, query, original_user_message, user_id)
 
         if tool == 'destek_talebi':
@@ -503,6 +546,37 @@ Yanıtın:
 '''
         bot_response = self.ollama_chat(rag_prompt, model=self.user_models.get(user_id))
         database.add_chat_history(user_id, "belge_sorgulama", original_user_message, bot_response, json.dumps({"sorgu": query, "report_id": report_id}))
+        return bot_response
+
+    def _summarize_report(self, report_id, original_user_message, user_id: str):
+        # İlgili belgeden en alakalı içerikleri çekip LLM ile kısa bir özet ürettir
+        # Tüm chunk'ları almak yerine arama bazlı en iyi birkaç parçayı kullanıyoruz
+        top_chunks = doc_processor.search_in_documents("", top_k=5)
+        filtered = [r for r in top_chunks if str(r['report_id']) == str(report_id)]
+        # Eğer boş sorgu ile sonuç zayıfsa, belgenin genel bağlamını almak için tekrar dene
+        if not filtered:
+            # Özeti çıkarmak için geniş bir anahtar kelime ile arama deneyelim
+            guess_query = "genel özet giriş amaç sonuç bulgular conclusion abstract overview"
+            filtered = [r for r in doc_processor.search_in_documents(guess_query, top_k=8) if str(r['report_id']) == str(report_id)]
+        if not filtered:
+            bot_response = "Seçili belgeden özet üretmek için yeterli içerik bulunamadı."
+            database.add_chat_history(user_id, "belge_ozet", original_user_message, bot_response, json.dumps({"report_id": report_id}))
+            return bot_response
+
+        context_for_llm = "\n\n".join([res['text'] for res in filtered])
+        prompt = f'''
+Belgenin aşağıdaki parçalarına dayanarak kısa, net ve maddeler halinde bir özet üret.
+- En fazla 6 madde yaz.
+- Varsa amaç, yöntem, temel bulgular ve sonuçları vurgula.
+- Metinde olmayan bilgi uydurma.
+
+Belge Parçaları:
+{context_for_llm}
+
+Çıktı:
+'''
+        bot_response = self.ollama_chat(prompt, model=self.user_models.get(user_id))
+        database.add_chat_history(user_id, "belge_ozet", original_user_message, bot_response, json.dumps({"report_id": report_id}))
         return bot_response
 
     def get_history(self, user_id: str):

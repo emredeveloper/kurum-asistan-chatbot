@@ -7,72 +7,85 @@
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-    <div class="chat-container">
-        <div class="chat-header">
-            <div class="theme-toggle" style="position:absolute;left:20px;top:20px;">
-                <button id="themeBtn" class="theme-btn" title="Karanlık/Aydınlık Tema">🌙</button>
-            </div>
-            <h1>🤖 Kurum İçi Asistan</h1>
-            <p>Kurumiçi akıllı asistanınız: Destek, kurum bilgisi, belge ve günlük işlemler için yanınızda.</p>
-            <div style="display: flex; gap: 12px; justify-content: center; margin-top: 16px; flex-wrap: wrap;">
-                <button class="dashboard-btn" onclick="openTutorial()">📖 Özellikler</button>
-                <button class="dashboard-btn" onclick="openDashboard()">📊 Dashboard</button>
-                <div style="display:flex; gap:8px; align-items:center; background:#fff; color:#111; padding:4px 8px; border-radius:8px;">
-                    <label for="modelSelect" style="font-size:0.9rem; color:#374151;">Model:</label>
-                    <select id="modelSelect" class="chat-input" style="width:auto; padding:6px 10px;">
-                        <option>Yükleniyor...</option>
-                    </select>
-                </div>
-            </div>
+    <div class="topbar">
+        <div class="brand"><span class="logo">🤖</span> Kurum İçi Asistan</div>
+        <div style="display:flex; gap:10px; align-items:center;">
+            <button class="dashboard-btn" onclick="openTutorial()">📖 Özellikler</button>
+            <button class="dashboard-btn" onclick="openDashboard()">📊 Dashboard</button>
+            <button id="themeBtn" class="theme-btn" title="Karanlık/Aydınlık Tema">🌙</button>
         </div>
+    </div>
 
-        <div class="info-box" id="infoBox">
-            <div class="info-content">
-                <button class="info-close" onclick="hideInfoBox()">×</button>
-                <h3>🤖 Merhaba! Ben Kurum Asistanı</h3>
-                <p>Size aşağıdaki konularda yardımcı olabilirim:</p>
-                <ul>
-                    <li>🌤️ Güncel hava durumu bilgisi alabilirim</li>
-                    <li>💼 Destek talebi oluşturabilirim</li>
-                    <li>🏢 Kurum içi bilgi tabanımızdan sorularınızı yanıtlayabilirim</li>
-                    <li>📄 Belgelerinizi (Word/PDF) yükleyip, içerikleri hakkında sorular sorabilirsiniz</li>
+    <div class="app-layout">
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <h3>Model</h3>
+                <select id="modelSelect" class="chat-input" style="width:100%; padding:10px 12px;">
+                    <option>Yükleniyor...</option>
+                </select>
+                <p class="hint" style="margin-top:6px;">Sohbet kalitesini dilediğiniz modelle deneyin.</p>
+            </div>
+            <div class="sidebar-section">
+                <h3>Belge Yükle</h3>
+                <form id="chatReportForm">
+                    <div class="upload-area">
+                        <input type="file" name="file" id="chatReportFile" accept=".pdf,.doc,.docx" required hidden>
+                        <label for="chatReportFile" class="upload-label">
+                            <strong>Belge seçin</strong>
+                            <span>veya sürükleyip bırakın</span>
+                        </label>
+                        <span id="fileName" class="file-name-display"></span>
+                    </div>
+                    <div class="upload-fields">
+                        <input type="text" name="uploader" id="chatUploaderName" placeholder="Yükleyen Adı" required>
+                        <button type="submit">Yükle</button>
+                    </div>
+                    <span id="chatReportMsg"></span>
+                </form>
+            </div>
+            <div class="sidebar-section">
+                <h3>İpuçları</h3>
+                <ul style="padding-left:18px; color:#6b7280;">
+                    <li>“Belgeyi özetle”</li>
+                    <li>“Seyahat politikası nedir?”</li>
+                    <li>“IT’ye destek talebi aç”</li>
                 </ul>
             </div>
-        </div>
+        </aside>
 
-        <div class="chat-messages" id="chatMessages">
-            <!-- Messages will be added here dynamically -->
-        </div>
-        
-        <div class="typing-indicator" id="typingIndicator">
-            🤖 Asistan yazıyor...
-        </div>
-        
-        <div class="report-upload-section">
-            <form id="chatReportForm">
-                <div class="upload-area">
-                    <input type="file" name="file" id="chatReportFile" accept=".pdf,.doc,.docx" required hidden>
-                    <label for="chatReportFile" class="upload-label">
-                        <strong>Belge seçin</strong>
-                        <span>veya sürükleyip bırakın</span>
-                    </label>
-                    <span id="fileName" class="file-name-display"></span>
+        <main>
+            <div class="chat-container">
+                <div class="chat-header">
+                    <h1>Konuşmaya Başlayın</h1>
+                    <p>Destek, kurum bilgisi, belge ve günlük işlemler için yanınızda.</p>
                 </div>
-                <div class="upload-fields">
-                    <input type="text" name="uploader" id="chatUploaderName" placeholder="Yükleyen Adı" required>
-                    <button type="submit">Yükle</button>
+
+                <div class="info-box" id="infoBox">
+                    <div class="info-content">
+                        <button class="info-close" onclick="hideInfoBox()">×</button>
+                        <h3>🤖 Merhaba! Ben Kurum Asistanı</h3>
+                        <p>Size aşağıdaki konularda yardımcı olabilirim:</p>
+                        <ul>
+                            <li>🌤️ Güncel hava durumu bilgisi alabilirim</li>
+                            <li>💼 Destek talebi oluşturabilirim</li>
+                            <li>🏢 Kurum içi bilgi tabanımızdan sorularınızı yanıtlayabilirim</li>
+                            <li>📄 Belgelerinizi (Word/PDF) yükleyip, içerikleri hakkında sorular sorabilirsiniz</li>
+                        </ul>
+                    </div>
                 </div>
-                <span id="chatReportMsg"></span>
-            </form>
-        </div>
-        <div class="chat-input-container">
-            <div class="chat-input-wrapper">
-                <input type="text" class="chat-input" id="messageInput" 
-                       placeholder="Type your message here..." 
-                       onkeypress="handleKeyPress(event)">
-                <button class="send-btn" id="sendBtn" onclick="sendMessage()">Send</button>
+
+                <div class="chat-messages" id="chatMessages"></div>
+                <div class="typing-indicator" id="typingIndicator">🤖 Asistan yazıyor...</div>
+                <div class="chat-input-container">
+                    <div class="chat-input-wrapper">
+                        <input type="text" class="chat-input" id="messageInput" 
+                               placeholder="Mesajınızı yazın..." 
+                               onkeypress="handleKeyPress(event)">
+                        <button class="send-btn" id="sendBtn" onclick="sendMessage()">Gönder</button>
+                    </div>
+                </div>
             </div>
-        </div>
+        </main>
     </div>
 
     <script src="/static/marked.min.js"></script>
@@ -90,20 +103,25 @@
             let renderedContent = content;
             // Belge seçimi için özel kontrol
             if (sender === 'bot' && typeof content === 'string' && content.includes('Birden fazla belge bulundu. Lütfen açıklamak istediğiniz belgeyi seçin')) {
-                // Belge seçeneklerini ayıkla
-                const lines = content.split('\n');
-                const options = lines.filter(l => l.match(/^\d+: /));
-                const info = lines[0];
-                const example = lines.find(l => l.includes('Örnek:'));
-                let btns = '';
-                options.forEach(opt => {
-                    const [id, ...rest] = opt.split(':');
-                    const name = rest.join(':').trim();
-                    btns += `<button class='select-report-btn' data-reportid='${id.trim()}' style='margin:4px 6px 4px 0;'>${name}</button>`;
-                });
-                renderedContent = `<div style='margin-bottom:8px;'>${info}</div><div>${btns}</div><div style='font-size:0.95em;color:#aaa;margin-top:6px;'>${example || ''}</div>`;
-            } else if (sender === 'bot' && window.marked) {
-                renderedContent = marked.parse(content);
+                // Mevcut seçim bloğu varsa yinelenmesin
+                const existingChoices = document.querySelectorAll('.message.bot .report-choice');
+                if (existingChoices.length > 0) {
+                    const lastChoice = existingChoices[existingChoices.length - 1];
+                    if (lastChoice && lastChoice.closest('.message')) {
+                        lastChoice.closest('.message').remove();
+                    }
+                }
+                renderedContent = renderReportOptions(content);
+            } else if (sender === 'bot') {
+                const normalized = normalizeForMarkdown(typeof content === 'string' ? content : '');
+                if (window.marked) {
+                    if (window.marked.setOptions) {
+                        window.marked.setOptions({ gfm: true, breaks: true, smartLists: true });
+                    }
+                    renderedContent = marked.parse(normalized);
+                } else {
+                    renderedContent = normalized.replace(/\n/g, '<br>');
+                }
             }
             messageDiv.innerHTML = `
                 <div class="message-avatar">${avatar}</div>
@@ -114,15 +132,106 @@
 
             // Belge seçimi butonlarına event ekle
             if (sender === 'bot' && content && content.includes('Birden fazla belge bulundu. Lütfen açıklamak istediğiniz belgeyi seçin')) {
-                document.querySelectorAll('.select-report-btn').forEach(btn => {
-                    btn.onclick = function() {
-                        const reportId = this.getAttribute('data-reportid');
-                        const lastUserMsg = getLastUserMessage();
-                        if (!lastUserMsg) return;
-                        sendReportExplainRequest(reportId, lastUserMsg);
-                    };
-                });
+                bindReportOptionButtons();
             }
+        }
+
+        function renderReportOptions(rawText) {
+            const lines = String(rawText || '').split('\n');
+            const info = lines[0] || 'Birden fazla belge bulundu.';
+            const example = lines.find(l => l.includes('Örnek:')) || '';
+            const blockId = 'report-choice-' + Date.now() + '-' + Math.random().toString(36).slice(2,8);
+            let options = [];
+            // 1) Eski biçim: "12: filename"
+            lines.forEach(line => {
+                const m1 = line.match(/^\s*(\d+)\s*:\s*(.+)$/);
+                if (m1) { options.push({ id: m1[1].trim(), name: m1[2].trim() }); }
+            });
+            // 2) Yeni biçim: "#12 · filename" veya "#12 - filename"
+            lines.forEach(line => {
+                const m2 = line.match(/^\s*#?(\d+)\s*[·•\-:\u00B7]\s*(.+)$/);
+                if (m2) { options.push({ id: m2[1].trim(), name: m2[2].trim() }); }
+            });
+            // Tekrarlı eklemeleri kaldır
+            const seen = new Set();
+            options = options.filter(o => { const k = o.id+"|"+o.name; if (seen.has(k)) return false; seen.add(k); return true; });
+            const buildHtml = (opts) => {
+                const btns = opts.map(o => `<button class='select-report-btn' data-reportid='${o.id}'>#${o.id} · ${escapeHtml(o.name)}</button>`).join('');
+                return `<div id='${blockId}' class='report-choice'>
+                    <div class='report-choice-title'>${escapeHtml(info)}</div>
+                    <div class='report-choice-buttons'>${btns || '<span class="hint">Belge seçenekleri yüklenemedi.</span>'}</div>
+                    <div class='report-choice-example'>${escapeHtml(example)}</div>
+                </div>`;
+            };
+            // Eğer metinden ayıklanamadıysa API'den çekerek butonları kur
+            if (options.length === 0) {
+                // Async render: önce yükleme göstergesi, sonra güncelle
+                setTimeout(async () => {
+                    try {
+                        const resp = await fetch('/reports');
+                        const all = await resp.json();
+                        options = (all || []).map(r => ({ id: String(r.id), name: r.original_filename }));
+                        const html = buildHtml(options);
+                        const container = document.getElementById(blockId);
+                        if (container) { container.outerHTML = html; bindReportOptionButtons(); }
+                    } catch (e) {
+                        // sessiz geç
+                    }
+                }, 0);
+            }
+            return buildHtml(options);
+        }
+
+        function bindReportOptionButtons() {
+            document.querySelectorAll('.select-report-btn').forEach(btn => {
+                btn.onclick = function() {
+                    const reportId = this.getAttribute('data-reportid');
+                    let lastUserMsg = getLastUserMessage();
+                    if (!lastUserMsg || lastUserMsg.length < 2) {
+                        lastUserMsg = 'Belgeyi açıkla';
+                    }
+                    sendReportExplainRequest(reportId, lastUserMsg);
+                };
+            });
+        }
+
+        function escapeHtml(str) {
+            return String(str || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function normalizeForMarkdown(text) {
+            if (!text) return '';
+            let t = String(text).replace(/\r\n/g, '\n');
+            // Cümle sonlarında gelen tireli maddeleri satır başına al
+            t = t.replace(/([\.!?\)])\s*-\s+/g, '$1\n- ');
+            // Numaralı liste yakalama (cümle sonundan sonra)
+            t = t.replace(/([\.!?\)])\s*(\d+)[\)\.:]\s+/g, '$1\n$2. ');
+
+            // Satır başı normalizasyonu
+            const lines = t.split('\n').map(l => {
+                let line = l;
+                // Başlık + madde karışımı: "### - ..." -> "- ..."
+                line = line.replace(/^\s*#{1,6}\s*-\s+/, '- ');
+                // Farklı madde işaretlerini normalize et: • · ‣ ▪ – — -  → "- "
+                line = line.replace(/^\s*[•·‣▪–—-]+\s+/, '- ');
+                // 1) veya 1: biçimini 1. yap
+                line = line.replace(/^\s*(\d+)[\)\:]+\s+/, '$1. ');
+                // Satır sonundaki gereksiz ### kaldır
+                line = line.replace(/\s*#{2,6}\s*$/, '');
+                // Boş kalın işaretleri ("** **") kaldır
+                line = line.replace(/\*\*\s*\*\*/g, '');
+                return line;
+            });
+
+            t = lines.join('\n');
+            // Birden fazla boş satırı sadeleştir
+            t = t.replace(/\n{3,}/g, '\n\n');
+            return t.trim();
         }
 
         function getLastUserMessage() {

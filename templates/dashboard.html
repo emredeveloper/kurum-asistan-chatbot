@@ -20,6 +20,25 @@
             </div>
         </div>
 
+        <div class="stats-cards">
+            <div class="stat-card">
+                <div class="stat-title">Toplam Rapor</div>
+                <div class="stat-value" id="statTotalReports">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">İşlenen</div>
+                <div class="stat-value" id="statProcessedReports">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Bekleyen</div>
+                <div class="stat-value" id="statPendingReports">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Açık Talepler</div>
+                <div class="stat-value" id="statOpenTickets">-</div>
+            </div>
+        </div>
+
         <div class="dashboard-grid">
             <div class="grid-item">
                 <h2>Destek Talepleri</h2>
@@ -48,6 +67,7 @@
                     <table>
                         <thead>
                             <tr>
+                                <th>ID</th>
                                 <th>Dosya Adı</th>
                                 <th>Yükleyen</th>
                                 <th>Yükleme Tarihi</th>
@@ -143,6 +163,7 @@
                 } else {
                     reports.forEach(report => {
                         const row = `<tr id="report-row-${report.id}">
+                            <td>#${report.id}</td>
                             <td>${report.original_filename}</td>
                             <td>${report.uploader_name}</td>
                             <td>${new Date(report.created_at).toLocaleString('tr-TR')}</td>
@@ -158,6 +179,21 @@
                 const history = await historyResponse.json();
                 const historyTableBody = document.getElementById('historyTable');
                 historyTableBody.innerHTML = ''; // Clear existing
+                // Dashboard istatistiklerini doldur
+                try {
+                    const dash = await fetch('/api/issues').then(r => r.json());
+                    if (dash && dash.reports) {
+                        document.getElementById('statTotalReports').textContent = dash.reports.total ?? '-';
+                        document.getElementById('statProcessedReports').textContent = dash.reports.processed ?? '-';
+                        document.getElementById('statPendingReports').textContent = dash.reports.unprocessed ?? '-';
+                    }
+                    if (dash && dash.tickets && dash.tickets.by_status) {
+                        const open = dash.tickets.by_status.open || 0;
+                        document.getElementById('statOpenTickets').textContent = open;
+                    }
+                } catch (e) {
+                    // Sessizce geç
+                }
                  if (history.length === 0) {
                     historyTableBody.innerHTML = '<tr><td colspan="4">Gösterilecek sorgu geçmişi yok.</td></tr>';
                 } else {

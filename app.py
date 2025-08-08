@@ -1,9 +1,11 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory, session
+import requests
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 import logging
 from logging.handlers import RotatingFileHandler
 import time
 from chatbot import CitizenAssistantBot
+from chatbot import LM_STUDIO_BASE_URL, LM_STUDIO_API_KEY
 import json
 import os
 import uuid
@@ -73,6 +75,34 @@ app.logger.setLevel(logging.INFO)
 
 AVAILABLE_MODELS = [m.strip() for m in os.getenv('LM_STUDIO_MODELS', 'openai/gpt-oss-20b,openai/gpt-4o-mini,meta-llama/llama-3.1-8b-instruct').split(',') if m.strip()]
 
+def get_lm_studio_models():
+    """LM Studio'nun /v1/models uç noktasından model listesini çeker.
+    Başarısız olursa boş liste döndürür ve UI env fallback'i kullanır.
+    """
+    try:
+        url = f"{LM_STUDIO_BASE_URL}/models"
+        headers = {"Content-Type": "application/json"}
+        if LM_STUDIO_API_KEY:
+            headers["Authorization"] = f"Bearer {LM_STUDIO_API_KEY}"
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        # OpenAI uyumlu: { object: 'list', data: [ { id: 'model' }, ... ] }
+        items = data.get('data') or []
+        ids = []
+        for it in items:
+            if isinstance(it, dict) and it.get('id'):
+                ids.append(it['id'])
+        # Bazı LM Studio sürümleri farklı alanlarla dönebilir; güvenli birleşim
+        return ids
+    except Exception as e:
+        # Sessiz fallback, loglayalım
+        try:
+            app.logger.info(f"LM Studio modelleri alınamadı: {e}")
+        except Exception:
+            pass
+        return []
+
 # Rapor meta verileri artık database'de tutulacak.
 # REPORTS = [] # Bu satırı kaldırıyoruz.
 
@@ -119,7 +149,9 @@ def get_models():
         session['user_id'] = str(uuid.uuid4())
     user_id = session['user_id']
     current = bot.user_models.get(user_id)
-    return jsonify({'available': AVAILABLE_MODELS, 'current': current})
+    lm_models = get_lm_studio_models()
+    available = lm_models if lm_models else AVAILABLE_MODELS
+    return jsonify({'available': available, 'current': current})
 
 @app.route('/api/model', methods=['POST'])
 def set_model():
@@ -128,7 +160,10 @@ def set_model():
     user_id = session['user_id']
     data = request.get_json(silent=True) or {}
     model = data.get('model')
-    if model and model in AVAILABLE_MODELS:
+    # Dinamik listeyi öncelikle LM Studio'dan çekip doğrulayalım
+    lm_models = get_lm_studio_models()
+    allow_list = lm_models if lm_models else AVAILABLE_MODELS
+    if model and (not allow_list or model in allow_list):
         bot.set_user_model(user_id, model)
         return jsonify({'success': True, 'model': model})
     # Boş veya geçersiz model ismi gelirse varsayılanı kullan
@@ -168,6 +203,14 @@ def api_support_tickets_read(idx):
     user_id = session['user_id']
     success = bot.mark_ticket_as_read(idx, user_id)
     return jsonify({'success': success})
+
+@app.route('/api/users')
+def api_users():
+    return jsonify(database.get_users())
+
+@app.route('/api/support_tickets_all')
+def api_support_tickets_all():
+    return jsonify(database.get_support_tickets_all())
 
 @app.route('/upload_report', methods=['POST'])
 def upload_report():
@@ -277,6 +320,31 @@ def delete_all_reports():
 if __name__ == '__main__':
     # Initialize the database when running the app directly
     database.init_db()
+    # Seed default internal users
+    database.seed_default_users()
+
+    # Optional: reset state on startup based on env var
+    if os.environ.get('RESET_ON_STARTUP', '1') == '1':
+        try:
+            # Clear DB tables except users
+            database.reset_non_user_data()
+            # Purge uploads and vector_store
+            import shutil
+            uploads_dir = os.path.join(os.getcwd(), 'uploads', 'reports')
+            vs_dir = os.path.join(os.getcwd(), 'vector_store')
+            if os.path.exists(uploads_dir):
+                shutil.rmtree(uploads_dir, ignore_errors=True)
+            if os.path.exists(vs_dir):
+                # keep folder but clear files
+                for fname in os.listdir(vs_dir):
+                    try:
+                        os.remove(os.path.join(vs_dir, fname))
+                    except Exception:
+                        pass
+            # Recreate uploads dir
+            os.makedirs(uploads_dir, exist_ok=True)
+        except Exception as e:
+            app.logger.info(f"Startup reset failed: {e}")
     @app.errorhandler(RequestEntityTooLarge)
     def handle_large_file(e):
         return jsonify({'success': False, 'message': 'Dosya boyutu sınırı aşıldı (20MB).'}), 413
