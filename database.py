@@ -3,6 +3,7 @@ import json
 import datetime
 import uuid
 import os # Added for environment variable
+from typing import Optional, List, Dict
 
 # Determine database name: Use environment variable if set, otherwise default.
 # This allows tests to use a different database.
@@ -84,6 +85,16 @@ def init_db(db_name_override=None):
     )
     ''')
 
+    # Institution Knowledge Base Table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS institution_knowledge (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        keywords TEXT NOT NULL,          -- Virgülle ayrılmış anahtar kelimeler/kalıplar
+        answer TEXT NOT NULL,            -- Yanıt metni (zengin metin olabilir)
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+
     conn.commit()
     conn.close()
 
@@ -106,6 +117,86 @@ def seed_default_users():
     cur.executemany('INSERT OR IGNORE INTO users (id, name, title, department) VALUES (?, ?, ?, ?)', default_users)
     conn.commit()
     conn.close()
+
+def seed_default_knowledge():
+    """Institution knowledge base için varsayılan kayıtları ekler (yoksa)."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT COUNT(*) FROM institution_knowledge')
+    count = cur.fetchone()[0]
+    if count and count > 0:
+        conn.close()
+        return
+
+    defaults = [
+        ("seyahat politikası, seyahat, yolculuk, konaklama", "Şirketimizde şehir dışı seyahatler için önceden onay alınmalı ve masraflar fatura ile belgelendirilmelidir."),
+        ("izin prosedürü, izin, yıllık izin", "Yıllık izinler için en az 3 gün önceden İnsan Kaynakları'na başvurulmalıdır."),
+        ("mesai ücreti, fazla mesai, mesai", "Fazla mesai ücretleri ilgili ayın sonunda bordroya yansıtılır."),
+        ("yemekhane, yemek, öğle yemeği", "Yemekhane hafta içi 12:00-14:00 saatleri arasında açıktır."),
+    ]
+    cur.executemany('INSERT INTO institution_knowledge (keywords, answer) VALUES (?, ?)', defaults)
+    conn.commit()
+    conn.close()
+
+def _normalize_text(text: str) -> str:
+    if not isinstance(text, str):
+        return ""
+    t = text.replace("İ", "i").replace("I", "i").lower()
+    replacements = {
+        "ı": "i",
+        "ç": "c",
+        "ş": "s",
+        "ö": "o",
+        "ü": "u",
+        "ğ": "g",
+    }
+    for tr, en in replacements.items():
+        t = t.replace(tr, en)
+    return t.strip()
+
+def search_kb_answer(query: str) -> Optional[str]:
+    """Sorguyu normalize ederek `institution_knowledge` içinde anahtar kelimelere göre eşleştirir.
+
+    Basit kural: Bir satırdaki herhangi bir anahtar kelime/kalıp (virgülle ayrılmış) sorgu içinde geçiyorsa o satırın cevabı döner.
+    Birden fazla eşleşmede ilkini verir.
+    """
+    if not query or not query.strip():
+        return None
+    q = _normalize_text(query)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT keywords, answer FROM institution_knowledge')
+    rows = cur.fetchall()
+    conn.close()
+    for row in rows:
+        keywords = (row[0] or "").split(',')
+        for kw in keywords:
+            if not kw.strip():
+                continue
+            if _normalize_text(kw) in q:
+                return row[1]
+    return None
+
+def search_kb_entries(query: str) -> List[Dict]:
+    """Sorguya uyan tüm KB kayıtlarını döndürür (keywords, answer)."""
+    results: List[Dict] = []
+    if not query or not query.strip():
+        return results
+    q = _normalize_text(query)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT keywords, answer FROM institution_knowledge')
+    rows = cur.fetchall()
+    conn.close()
+    for row in rows:
+        keywords = (row[0] or "").split(',')
+        for kw in keywords:
+            if not kw.strip():
+                continue
+            if _normalize_text(kw) in q:
+                results.append({"keywords": row[0], "answer": row[1]})
+                break
+    return results
 
 def get_users():
     conn = get_db_connection()
@@ -303,6 +394,7 @@ def reset_non_user_data():
     cur.execute('DELETE FROM chat_history')
     cur.execute('DELETE FROM support_tickets')
     cur.execute('DELETE FROM uploaded_reports')
+    cur.execute('DELETE FROM institution_knowledge')
     conn.commit()
     conn.close()
 

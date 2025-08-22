@@ -1,10 +1,5 @@
-nltk
-spacy
 flask
 python-dateutil
-email-validator
-googletrans-py
-json5
 requests
 python-dotenv
 pytest
@@ -14,3 +9,4 @@ python-docx
 sentence-transformers
 faiss-cpu
 PyMuPDF
+googletrans-py

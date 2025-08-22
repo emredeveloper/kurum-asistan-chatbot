@@ -7,20 +7,20 @@
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-    <div class="topbar">
+    <div class="topbar" role="banner">
         <div class="brand"><span class="logo">🤖</span> Kurum İçi Asistan</div>
         <div style="display:flex; gap:10px; align-items:center;">
-            <button class="dashboard-btn" onclick="openTutorial()">📖 Özellikler</button>
-            <button class="dashboard-btn" onclick="openDashboard()">📊 Dashboard</button>
-            <button id="themeBtn" class="theme-btn" title="Karanlık/Aydınlık Tema">🌙</button>
+            <button class="dashboard-btn" onclick="openTutorial()" aria-label="Özellikler sayfasını aç">📖 Özellikler</button>
+            <button class="dashboard-btn" onclick="openDashboard()" aria-label="Dashboard sayfasını aç">📊 Gösterge Paneli</button>
+            <button id="themeBtn" class="theme-btn" title="Karanlık/Aydınlık Tema" aria-pressed="false">🌙</button>
         </div>
     </div>
 
     <div class="app-layout">
-        <aside class="sidebar">
+        <aside class="sidebar" role="complementary" aria-label="Ayarlar ve yükleme">
             <div class="sidebar-section">
                 <h3>Model</h3>
-                <select id="modelSelect" class="chat-input" style="width:100%; padding:10px 12px;">
+                <select id="modelSelect" class="chat-input" style="width:100%; padding:10px 12px;" aria-label="Model seçici">
                     <option>Yükleniyor...</option>
                 </select>
                 <p class="hint" style="margin-top:6px;">Sohbet kalitesini dilediğiniz modelle deneyin.</p>
@@ -29,7 +29,7 @@
                 <h3>Belge Yükle</h3>
                 <form id="chatReportForm">
                     <div class="upload-area">
-                        <input type="file" name="file" id="chatReportFile" accept=".pdf,.doc,.docx" required hidden>
+                        <input type="file" name="file" id="chatReportFile" accept=".pdf,.doc,.docx" required hidden aria-label="Belge seç">
                         <label for="chatReportFile" class="upload-label">
                             <strong>Belge seçin</strong>
                             <span>veya sürükleyip bırakın</span>
@@ -37,8 +37,8 @@
                         <span id="fileName" class="file-name-display"></span>
                     </div>
                     <div class="upload-fields">
-                        <input type="text" name="uploader" id="chatUploaderName" placeholder="Yükleyen Adı" required>
-                        <button type="submit">Yükle</button>
+                        <input type="text" name="uploader" id="chatUploaderName" placeholder="Yükleyen adı" required aria-label="Yükleyen adı">
+                        <button type="submit" aria-label="Belgeyi yükle">Yükle</button>
                     </div>
                     <span id="chatReportMsg"></span>
                 </form>
@@ -56,13 +56,13 @@
         <main>
             <div class="chat-container">
                 <div class="chat-header">
-                    <h1>Konuşmaya Başlayın</h1>
+                    <h1>Konuşmaya başlayın</h1>
                     <p>Destek, kurum bilgisi, belge ve günlük işlemler için yanınızda.</p>
                 </div>
 
                 <div class="info-box" id="infoBox">
                     <div class="info-content">
-                        <button class="info-close" onclick="hideInfoBox()">×</button>
+                        <button class="info-close" onclick="hideInfoBox()" aria-label="Karşılama kutusunu kapat">×</button>
                         <h3>🤖 Merhaba! Ben Kurum Asistanı</h3>
                         <p>Size aşağıdaki konularda yardımcı olabilirim:</p>
                         <ul>
@@ -79,10 +79,11 @@
                 <div class="chat-input-container">
                     <div class="chat-input-wrapper">
                         <input type="text" class="chat-input" id="messageInput" 
-                               placeholder="Mesajınızı yazın..." 
-                               onkeypress="handleKeyPress(event)">
-                        <button class="send-btn" id="sendBtn" onclick="sendMessage()">Gönder</button>
+                               placeholder="Mesajınızı yazın... (Enter: Gönder, Shift+Enter: Satır)" 
+                               onkeypress="handleKeyPress(event)" aria-label="Mesaj giriş alanı">
+                        <button class="send-btn" id="sendBtn" onclick="sendMessage()" disabled aria-disabled="true">Gönder</button>
                     </div>
+                    <div class="hint" aria-live="polite">Enter: gönder • Shift+Enter: satır ekle</div>
                 </div>
             </div>
         </main>
@@ -322,7 +323,8 @@
         }
 
         function handleKeyPress(event) {
-            if (event.key === 'Enter') {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
                 sendMessage();
             }
         }
@@ -338,6 +340,16 @@
         // Initialize page when loaded
         document.addEventListener('DOMContentLoaded', async function() {
             document.getElementById('messageInput').focus();
+            // Gönder butonunu mesaj boşken devre dışı tut
+            const inputEl = document.getElementById('messageInput');
+            const sendEl = document.getElementById('sendBtn');
+            function toggleSend() {
+                const hasText = (inputEl.value || '').trim().length > 0;
+                sendEl.disabled = !hasText;
+                sendEl.setAttribute('aria-disabled', String(!hasText));
+            }
+            inputEl.addEventListener('input', toggleSend);
+            toggleSend();
             // Model listesini çek
             try {
                 const resp = await fetch('/api/models');
@@ -383,6 +395,7 @@
             themeBtn.onclick = function() {
                 isDark = !isDark;
                 setDark(isDark);
+                themeBtn.setAttribute('aria-pressed', String(isDark));
             };
         });
 

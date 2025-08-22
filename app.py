@@ -73,7 +73,7 @@ file_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s in %(mo
 app.logger.addHandler(file_handler)
 app.logger.setLevel(logging.INFO)
 
-AVAILABLE_MODELS = [m.strip() for m in os.getenv('LM_STUDIO_MODELS', 'openai/gpt-oss-20b,openai/gpt-4o-mini,meta-llama/llama-3.1-8b-instruct').split(',') if m.strip()]
+AVAILABLE_MODELS = [m.strip() for m in os.getenv('LM_STUDIO_MODELS', 'qwen/qwen3-4b-2507').split(',') if m.strip()]
 
 def get_lm_studio_models():
     """LM Studio'nun /v1/models uç noktasından model listesini çeker.
@@ -94,7 +94,9 @@ def get_lm_studio_models():
             if isinstance(it, dict) and it.get('id'):
                 ids.append(it['id'])
         # Bazı LM Studio sürümleri farklı alanlarla dönebilir; güvenli birleşim
-        return ids
+        # Sadece izin verilen model listesi
+        allowed = ['qwen/qwen3-4b-2507']
+        return [m for m in ids if m in allowed] or allowed
     except Exception as e:
         # Sessiz fallback, loglayalım
         try:
@@ -320,10 +322,7 @@ def delete_all_reports():
 if __name__ == '__main__':
     # Initialize the database when running the app directly
     database.init_db()
-    # Seed default internal users
-    database.seed_default_users()
-
-    # Optional: reset state on startup based on env var
+    # Optional: reset state on startup based on env var (reset first, then seed)
     if os.environ.get('RESET_ON_STARTUP', '1') == '1':
         try:
             # Clear DB tables except users
@@ -345,6 +344,13 @@ if __name__ == '__main__':
             os.makedirs(uploads_dir, exist_ok=True)
         except Exception as e:
             app.logger.info(f"Startup reset failed: {e}")
+
+    # Seed default institution knowledge and default users AFTER reset
+    try:
+        database.seed_default_knowledge()
+    except Exception as e:
+        app.logger.info(f"Seed knowledge failed: {e}")
+    database.seed_default_users()
     @app.errorhandler(RequestEntityTooLarge)
     def handle_large_file(e):
         return jsonify({'success': False, 'message': 'Dosya boyutu sınırı aşıldı (20MB).'}), 413

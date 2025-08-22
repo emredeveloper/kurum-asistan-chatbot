@@ -16,19 +16,13 @@ load_dotenv()
 #      LM_STUDIO_MODEL=YourModelName
 #      LM_STUDIO_API_KEY=lm-studio (gerekmeyebilir)
 LM_STUDIO_BASE_URL = os.getenv("LM_STUDIO_BASE_URL", "http://localhost:1234/v1")
-LM_STUDIO_MODEL = os.getenv("LM_STUDIO_MODEL", "openai/gpt-oss-20b")
+# Zorunlu model
+LM_STUDIO_MODEL = os.getenv("LM_STUDIO_MODEL", "qwen/qwen3-4b-2507")
 LM_STUDIO_API_KEY = os.getenv("LM_STUDIO_API_KEY", "")
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "BURAYA_API_KEY_GIRIN")
 
 class CitizenAssistantBot:
     DEPARTMANLAR = ["IT", "İnsan Kaynakları", "Muhasebe", "Teknik Servis"]
-
-    KURUM_BILGI_TABANI = {
-        "seyahat politikası": "Şirketimizde şehir dışı seyahatler için önceden onay alınmalı ve masraflar fatura ile belgelendirilmelidir.",
-        "izin prosedürü": "Yıllık izinler için en az 3 gün önceden İK'ya başvurulmalıdır.",
-        "mesai ücreti": "Fazla mesai ücretleri, ilgili ayın sonunda bordroya yansıtılır.",
-        "yemekhane": "Yemekhane hafta içi 12:00-14:00 arası açıktır."
-    }
 
     def __init__(self):
         # self.histories and self.all_support_tickets are now removed
@@ -118,14 +112,39 @@ class CitizenAssistantBot:
         return text.strip()
 
     def get_kurum_bilgisi(self, soru):
-        # Normalize the question for more robust matching
-        normalized_soru = self.normalize_dept(soru) # Using normalize_dept for general text normalization
-        for anahtar, cevap in self.KURUM_BILGI_TABANI.items():
-            # Normalize keywords from the knowledge base as well for consistent matching
-            normalized_anahtar = self.normalize_dept(anahtar)
-            if normalized_anahtar in normalized_soru:
-                return cevap
-        return "Bu konuda bilgi bulunamadı."
+        """Kurum bilgisini DB'den bulup LLM ile kurumsal bir dille özetler.
+
+        - DB'den uyan kayıtları toplar
+        - Kayıtları bağlam olarak LLM'e verir
+        - Uygun değilse nazik fallback yanıtı döner
+        """
+        try:
+            # Test/Deterministik mod: LLM zenginleştirmesini devre dışı bırak
+            if os.getenv("KB_LLM_MODE", "enrich").lower() == "direct":
+                direct = database.search_kb_answer(soru)
+                return direct or "Bu konuda bilgi bulunamadı."
+            entries = database.search_kb_entries(soru)
+            if not entries:
+                # Tek eşleşme arayıp yine de dönmüyorsa None
+                single = database.search_kb_answer(soru)
+                if not single:
+                    return "Bu konuda bilgi bulunamadı."
+                entries = [{"keywords": "", "answer": single}]
+
+            bullets = "\n".join([f"- {e['answer']}" for e in entries])
+            prompt = f"""
+Kurumsal bilgi notları aşağıda verilmiştir. Kullanıcının sorusunu bu notları temel alarak, açık ve güvenilir bir dille yanıtla. Bilinmeyen kısımlar için tahmin yürütme; bunun yerine "eldeki kayıtlarda yer almıyor" de. Gerekirse kısa madde işaretli özet kullan.
+
+Soru: {soru}
+
+Kurumsal notlar:
+{bullets}
+
+Yanıt:
+"""
+            return self.ollama_chat(prompt, model=None if not hasattr(self, 'user_models') else None)
+        except Exception:
+            return "Bu konuda bilgi bulunamadı."
 
     # The following def process_message was the start of the duplicated block.
     # The lines "if anahtar in soru.lower(): return cevap" and "return "Bu konuda..."
@@ -197,7 +216,7 @@ class CitizenAssistantBot:
         kb_answer = self.get_kurum_bilgisi(message)
         if kb_answer and kb_answer != "Bu konuda bilgi bulunamadı.":
             bot_response = kb_answer
-            database.add_chat_history(user_id, "kurum_bilgisi_heuristic", message, bot_response, json.dumps({"matched": True}))
+            database.add_chat_history(user_id, "kurum_bilgisi_llm", message, bot_response, json.dumps({"matched": True}))
             return bot_response
 
         # 0.5) Hızlı özetleme heuristiği (LLM'e gitmeden önce)

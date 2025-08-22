@@ -130,7 +130,8 @@ class DocumentProcessor:
         `report_id` is the ID from the 'reports' table in the database.
         """
         try:
-            print(f"[RAG-DEBUG] İşleme başlandı: {file_path}, report_id: {report_id}")
+            # Daha az gürültü: sadece önemli aşamalarda bilgi ver
+            print(f"[RAG] İşleme: {file_path} (report_id={report_id})")
             file_path = Path(file_path)
             if not file_path.exists():
                 print(f"[RAG-ERROR] Dosya bulunamadı: {file_path}")
@@ -138,30 +139,30 @@ class DocumentProcessor:
 
             if file_path.suffix.lower() == '.pdf':
                 text = self._extract_text_from_pdf(file_path)
-                print(f"[RAG-DEBUG] PDF'den metin çıkarıldı, uzunluk: {len(text)} karakter")
+                print(f"[RAG] PDF metin çıkarıldı (uzunluk={len(text)})")
             elif file_path.suffix.lower() in ['.doc', '.docx']:
                 text = self._extract_text_from_docx(file_path)
-                print(f"[RAG-DEBUG] DOCX'den metin çıkarıldı, uzunluk: {len(text)} karakter")
+                print(f"[RAG] DOCX metin çıkarıldı (uzunluk={len(text)})")
             else:
                 print(f"[RAG-ERROR] Desteklenmeyen dosya tipi: {file_path.suffix}")
                 return # Unsupported file type
 
             chunks = self._split_text(text)
-            print(f"[RAG-DEBUG] Metin {len(chunks)} parçaya bölündü.")
+            print(f"[RAG] {len(chunks)} parça üretildi")
             if not chunks:
                 print(f"[RAG-ERROR] Metin parçalara ayrılamadı veya boş.")
                 return
 
             self._ensure_model()
             embeddings = self.model.encode(chunks, convert_to_tensor=False)
-            print(f"[RAG-DEBUG] Embeddingler oluşturuldu. Boyut: {len(embeddings)}")
+            print(f"[RAG] Embeddingler hazır (adet={len(embeddings)})")
             
             # Check if index exists and its dimension matches
             d = self.model.get_sentence_embedding_dimension()
             if self.index is None or getattr(self.index, 'd', None) != d:
                 self._ensure_faiss()
                 if self.faiss is None:
-                    print("[RAG-WARN] FAISS bulunamadı; belge indeksleme devre dışı.")
+                    print("[RAG-WARN] FAISS bulunamadı; indeksleme devre dışı.")
                     return
                 self.index = self.faiss.IndexFlatL2(d)
                 self.metadata = []
