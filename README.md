@@ -1,64 +1,76 @@
-# Kurum İçi Akıllı Asistan Chatbotu
+# Internal Smart Assistant Chatbot
 
- Kurumiçi süreçleri kolaylaştıran, LLM (yerel LM Studio/OpenAI uyumlu API) tabanlı, modern ve fonksiyonel bir sohbet asistanı. Hava durumu, kurum içi bilgi, destek talebi, belge yükleme ve daha fazlası tek ekranda!
+A modern and functional LLM-based (local LM Studio/OpenAI compatible API) chatbot that simplifies internal processes. Weather updates, internal knowledge, support tickets, document uploads, and more — all in one screen!
 
-## Özellikler
-- 🤖 **LLM tabanlı doğal dilde sohbet** (LM Studio/OpenAI uyumlu API ile yerel model)
-- 🔗 **Çoklu tool/fonksiyon zinciri**: Hava durumu, kurum içi bilgi, destek talebi, belge yükleme
-- 🏢 **Kurum içi bilgi tabanı**: Sık sorulanlar, prosedürler, politikalar
-- 🌤️ **Hava durumu sorgulama** (OpenWeatherMap API)
-- 💼 **Destek talebi oluşturma** (departman, açıklama, aciliyet, kategori)
-- 🗂️ **Dashboard**: Sorgu geçmişi, hava durumu geçmişi, destek talepleri ve yüklenen raporlar
-- 📄 **Word/PDF rapor yükleme**: Hem sohbet ekranından hem dashboard'dan dosya ekleyip yönetme
-- �� **Karanlık/Aydınlık tema** (localStorage ile kalıcı)
-- 📱 **Modern, responsive ve mobil uyumlu arayüz**
-- 🛡️ **API anahtarı .env ile güvenli**
+## Features
 
-## Kurulum
-1. Depoyu klonlayın ve dizine girin.
-2. Sanal ortam oluşturun ve aktif edin:
+* 🤖 **LLM-powered natural language chat** (local model via LM Studio/OpenAI compatible API)
+* 🔗 **Multi-tool/function chaining**: weather, internal knowledge, support tickets, document upload
+* 🏢 **Internal knowledge base**: FAQs, procedures, policies
+* 🌤️ **Weather query** (OpenWeatherMap API)
+* 💼 **Support ticket creation** (department, description, urgency, category)
+* 🗂️ **Dashboard**: query history, weather history, support tickets, uploaded reports
+* 📄 **Word/PDF report upload**: attach and manage files from both the chat screen and dashboard
+* 🌗 **Dark/Light theme** (persistent with localStorage)
+* 📱 **Modern, responsive, and mobile-friendly UI**
+* 🛡️ **Secure API key management with .env**
+
+## Installation
+
+1. Clone the repository and navigate into the directory.
+2. Create and activate a virtual environment:
+
    ```bash
    python -m venv .venv
    # Windows: .venv\Scripts\activate
    # Linux/Mac: source .venv/bin/activate
    ```
-3. Gereksinimleri yükleyin:
+3. Install requirements:
+
    ```bash
    pip install -r requirements.txt
    ```
-4. `.env` dosyasına OpenWeatherMap API anahtarınızı ekleyin:
+4. Add your OpenWeatherMap API key to the `.env` file:
+
    ```
-   OPENWEATHER_API_KEY=API_ANAHTARINIZ
+   OPENWEATHER_API_KEY=YOUR_API_KEY
    ```
-<<<<<<< HEAD
-5. LM Studio veya Ollama kullanın (ikisi de OpenAI uyumlu sunucu verebilir):
-   - LM Studio:
-     - Modeli başlatın ve OpenAI Compatible Server'ı açın (örn. `http://localhost:1234/v1`).
-   - Ollama (opsiyonel):
-     - `ollama run qwen3:8b` gibi bir modeli çalıştırın ve OpenAI uyumlu proxy kullanın.
-   - `.env` örneği:
+5. Use LM Studio or Ollama (both can serve as an OpenAI-compatible server):
+
+   * **LM Studio**:
+
+     * Start a model and enable the OpenAI Compatible Server (e.g. `http://localhost:1234/v1`).
+   * **Ollama (optional)**:
+
+     * Run a model such as `ollama run qwen3:8b` and use an OpenAI-compatible proxy.
+   * Example `.env`:
+
      ```
      LM_STUDIO_BASE_URL=http://localhost:1234/v1
      LM_STUDIO_MODEL=openai/gpt-oss-20b
-     # LM_STUDIO_API_KEY=opsiyonel
-     OPENWEATHER_API_KEY=API_ANAHTARINIZ
+     # LM_STUDIO_API_KEY=optional
+     OPENWEATHER_API_KEY=YOUR_API_KEY
      ```
-6. Uygulamayı başlatın:
+6. Start the application:
+
    ```bash
    python app.py
    ```
-7. Tarayıcıda `http://localhost:5000` adresine gidin.
+7. Open `http://localhost:5000` in your browser.
 
-## Kullanım
-- **Sohbet ekranı:** Mesajınızı yazıp gönderin, hava durumu, bilgi, destek, belge yükleme gibi işlemleri doğal dilde sorun.
-- **Rapor yükleme:** Sohbet ekranından veya dashboard'dan Word/PDF dosyası ekleyin, dashboard'da yönetin ve indirin.
-- **Dashboard:** Sorgu geçmişi, hava durumu, destek talepleri ve yüklenen raporları görüntüleyin.
-- **Tema:** Sağ üstteki butonla karanlık/aydınlık mod arasında geçiş yapın.
+## Usage
 
-## Notlar
-- Tüm veriler geçici olarak bellekte tutulur, kullanıcı kimliği desteği eklenebilir.
-- Departmanlar, bilgi tabanı ve tool zinciri kolayca özelleştirilebilir.
-- Gelişmiş LLM entegrasyonu ile çoklu tool/fonksiyon zinciri desteklenir.
+* **Chat screen:** Type and send your message — ask about weather, internal knowledge, support, or document uploads naturally.
+* **Report upload:** Add Word/PDF files from the chat screen or dashboard, manage and download them on the dashboard.
+* **Dashboard:** View query history, weather history, support tickets, and uploaded reports.
+* **Theme:** Switch between dark and light mode with the button in the top-right corner.
 
----
-Geliştirici: emredeveloper
+## Notes
+
+* All data is temporarily stored in memory; user identity support can be added.
+* Departments, knowledge base, and tool chains can be easily customized.
+* Supports advanced multi-tool/function chaining with LLM integration.
+
+
+Developer: emredeveloper
+

@@ -8,47 +8,47 @@
 </head>
 <body>
     <div class="topbar" role="banner">
-        <div class="brand"><span class="logo">🤖</span> Kurum İçi Asistan</div>
+        <div class="brand"><span class="logo">🤖</span>Assistant</div>
         <div style="display:flex; gap:10px; align-items:center;">
-            <button class="dashboard-btn" onclick="openTutorial()" aria-label="Özellikler sayfasını aç">📖 Özellikler</button>
-            <button class="dashboard-btn" onclick="openDashboard()" aria-label="Dashboard sayfasını aç">📊 Gösterge Paneli</button>
-            <button id="themeBtn" class="theme-btn" title="Karanlık/Aydınlık Tema" aria-pressed="false">🌙</button>
+            <button class="dashboard-btn" onclick="openTutorial()" aria-label="Open the Features">📖 Features</button>
+            <button class="dashboard-btn" onclick="openDashboard()" aria-label="Open the Dashboard">📊 Dashboard</button>
+            <button id="themeBtn" class="theme-btn" title="Dark/Light Theme" aria-pressed="false">🌙</button>
         </div>
     </div>
 
     <div class="app-layout">
-        <aside class="sidebar" role="complementary" aria-label="Ayarlar ve yükleme">
+        <aside class="sidebar" role="complementary" aria-label="Settings">
             <div class="sidebar-section">
                 <h3>Model</h3>
-                <select id="modelSelect" class="chat-input" style="width:100%; padding:10px 12px;" aria-label="Model seçici">
-                    <option>Yükleniyor...</option>
+                <select id="modelSelect" class="chat-input" style="width:100%; padding:10px 12px;" aria-label="Model selection">
+                    <option>Loading...</option>
                 </select>
-                <p class="hint" style="margin-top:6px;">Sohbet kalitesini dilediğiniz modelle deneyin.</p>
+                <p class="hint" style="margin-top:6px;">Try any model you want.</p>
             </div>
             <div class="sidebar-section">
-                <h3>Belge Yükle</h3>
+                <h3>Upload</h3>
                 <form id="chatReportForm">
                     <div class="upload-area">
-                        <input type="file" name="file" id="chatReportFile" accept=".pdf,.doc,.docx" required hidden aria-label="Belge seç">
+                        <input type="file" name="file" id="chatReportFile" accept=".pdf,.doc,.docx" required hidden aria-label="Choose a document">
                         <label for="chatReportFile" class="upload-label">
-                            <strong>Belge seçin</strong>
-                            <span>veya sürükleyip bırakın</span>
+                            <strong>Choose file</strong>
+                            <span>or drop it here!</span>
                         </label>
                         <span id="fileName" class="file-name-display"></span>
                     </div>
                     <div class="upload-fields">
-                        <input type="text" name="uploader" id="chatUploaderName" placeholder="Yükleyen adı" required aria-label="Yükleyen adı">
-                        <button type="submit" aria-label="Belgeyi yükle">Yükle</button>
+                        <input type="text" name="uploader" id="chatUploaderName" placeholder="Your name" required aria-label="Name">
+                        <button type="submit" aria-label="Upload the document">Upload</button>
                     </div>
                     <span id="chatReportMsg"></span>
                 </form>
             </div>
             <div class="sidebar-section">
-                <h3>İpuçları</h3>
+                <h3>Examples</h3>
                 <ul style="padding-left:18px; color:#6b7280;">
-                    <li>“Belgeyi özetle”</li>
-                    <li>“Seyahat politikası nedir?”</li>
-                    <li>“IT’ye destek talebi aç”</li>
+                    <li>"Summarize the file"</li>
+                    <li>“What’s the policy of...?”</li>
+                    <li>“Open an IT support request”</li>
                 </ul>
             </div>
         </aside>
@@ -56,34 +56,34 @@
         <main>
             <div class="chat-container">
                 <div class="chat-header">
-                    <h1>Konuşmaya başlayın</h1>
-                    <p>Destek, kurum bilgisi, belge ve günlük işlemler için yanınızda.</p>
+                    <h1>Start a Conversation</h1>
+                    <p>Here to help with support, organization info, documents, and daily tasks.</p>
                 </div>
 
                 <div class="info-box" id="infoBox">
                     <div class="info-content">
-                        <button class="info-close" onclick="hideInfoBox()" aria-label="Karşılama kutusunu kapat">×</button>
-                        <h3>🤖 Merhaba! Ben Kurum Asistanı</h3>
-                        <p>Size aşağıdaki konularda yardımcı olabilirim:</p>
+                        <button class="info-close" onclick="hideInfoBox()" aria-label="Close the welcome box">×</button>
+                        <h3>🤖 Hello! I am your Assistant</h3>
+                        <p>I can help you with the following:</p>
                         <ul>
-                            <li>🌤️ Güncel hava durumu bilgisi alabilirim</li>
-                            <li>💼 Destek talebi oluşturabilirim</li>
-                            <li>🏢 Kurum içi bilgi tabanımızdan sorularınızı yanıtlayabilirim</li>
-                            <li>📄 Belgelerinizi (Word/PDF) yükleyip, içerikleri hakkında sorular sorabilirsiniz</li>
+                            <li>🌤️ Provide current weather information</li>
+                            <li>💼 Create support requests</li>
+                            <li>🏢 Answer questions from our internal knowledge base</li>
+                            <li>📄 Upload your documents (Word/PDF) and ask questions about them</li>
                         </ul>
                     </div>
                 </div>
 
                 <div class="chat-messages" id="chatMessages"></div>
-                <div class="typing-indicator" id="typingIndicator">🤖 Asistan yazıyor...</div>
+                <div class="typing-indicator" id="typingIndicator">🤖 Assistant is typing...</div>
                 <div class="chat-input-container">
                     <div class="chat-input-wrapper">
                         <input type="text" class="chat-input" id="messageInput" 
-                               placeholder="Mesajınızı yazın... (Enter: Gönder, Shift+Enter: Satır)" 
-                               onkeypress="handleKeyPress(event)" aria-label="Mesaj giriş alanı">
-                        <button class="send-btn" id="sendBtn" onclick="sendMessage()" disabled aria-disabled="true">Gönder</button>
+                               placeholder="Type your message... (Enter: Send, Shift+Enter: New line)" 
+                               onkeypress="handleKeyPress(event)" aria-label="Message input field">
+                        <button class="send-btn" id="sendBtn" onclick="sendMessage()" disabled aria-disabled="true">Send</button>
                     </div>
-                    <div class="hint" aria-live="polite">Enter: gönder • Shift+Enter: satır ekle</div>
+                    <div class="hint" aria-live="polite">Enter: send • Shift+Enter: new line</div>
                 </div>
             </div>
         </main>
@@ -92,19 +92,13 @@
     <script src="/static/marked.min.js"></script>
     <script>
         let conversationStarted = false;
-
-        // Welcome mesajı artık info-box olarak gösteriliyor
-        // initChat fonksiyonu artık gerekli değil
-
         function addMessage(sender, content) {
             const messagesContainer = document.getElementById('chatMessages');
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${sender}`;
             const avatar = sender === 'user' ? '👤' : '🤖';
             let renderedContent = content;
-            // Belge seçimi için özel kontrol
-            if (sender === 'bot' && typeof content === 'string' && content.includes('Birden fazla belge bulundu. Lütfen açıklamak istediğiniz belgeyi seçin')) {
-                // Mevcut seçim bloğu varsa yinelenmesin
+            if (sender === 'bot' && typeof content === 'string' && content.includes('Found too many file. Choose the file that you want to use.')) {
                 const existingChoices = document.querySelectorAll('.message.bot .report-choice');
                 if (existingChoices.length > 0) {
                     const lastChoice = existingChoices[existingChoices.length - 1];
@@ -132,7 +126,7 @@
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
             // Belge seçimi butonlarına event ekle
-            if (sender === 'bot' && content && content.includes('Birden fazla belge bulundu. Lütfen açıklamak istediğiniz belgeyi seçin')) {
+            if (sender === 'bot' && content && content.includes('Found too many file. Choose the file that you want to use.')) {
                 bindReportOptionButtons();
             }
         }
@@ -143,30 +137,26 @@
             const example = lines.find(l => l.includes('Örnek:')) || '';
             const blockId = 'report-choice-' + Date.now() + '-' + Math.random().toString(36).slice(2,8);
             let options = [];
-            // 1) Eski biçim: "12: filename"
             lines.forEach(line => {
                 const m1 = line.match(/^\s*(\d+)\s*:\s*(.+)$/);
                 if (m1) { options.push({ id: m1[1].trim(), name: m1[2].trim() }); }
             });
-            // 2) Yeni biçim: "#12 · filename" veya "#12 - filename"
             lines.forEach(line => {
                 const m2 = line.match(/^\s*#?(\d+)\s*[·•\-:\u00B7]\s*(.+)$/);
                 if (m2) { options.push({ id: m2[1].trim(), name: m2[2].trim() }); }
             });
-            // Tekrarlı eklemeleri kaldır
             const seen = new Set();
             options = options.filter(o => { const k = o.id+"|"+o.name; if (seen.has(k)) return false; seen.add(k); return true; });
             const buildHtml = (opts) => {
                 const btns = opts.map(o => `<button class='select-report-btn' data-reportid='${o.id}'>#${o.id} · ${escapeHtml(o.name)}</button>`).join('');
                 return `<div id='${blockId}' class='report-choice'>
                     <div class='report-choice-title'>${escapeHtml(info)}</div>
-                    <div class='report-choice-buttons'>${btns || '<span class="hint">Belge seçenekleri yüklenemedi.</span>'}</div>
+                    <div class='report-choice-buttons'>${btns || '<span class="hint">Cannot load.</span>'}</div>
                     <div class='report-choice-example'>${escapeHtml(example)}</div>
                 </div>`;
             };
-            // Eğer metinden ayıklanamadıysa API'den çekerek butonları kur
+
             if (options.length === 0) {
-                // Async render: önce yükleme göstergesi, sonra güncelle
                 setTimeout(async () => {
                     try {
                         const resp = await fetch('/reports');
@@ -176,7 +166,7 @@
                         const container = document.getElementById(blockId);
                         if (container) { container.outerHTML = html; bindReportOptionButtons(); }
                     } catch (e) {
-                        // sessiz geç
+                        print(e)
                     }
                 }, 0);
             }
@@ -189,7 +179,7 @@
                     const reportId = this.getAttribute('data-reportid');
                     let lastUserMsg = getLastUserMessage();
                     if (!lastUserMsg || lastUserMsg.length < 2) {
-                        lastUserMsg = 'Belgeyi açıkla';
+                        lastUserMsg = 'Explain the file';
                     }
                     sendReportExplainRequest(reportId, lastUserMsg);
                 };
@@ -208,35 +198,28 @@
         function normalizeForMarkdown(text) {
             if (!text) return '';
             let t = String(text).replace(/\r\n/g, '\n');
-            // Cümle sonlarında gelen tireli maddeleri satır başına al
             t = t.replace(/([\.!?\)])\s*-\s+/g, '$1\n- ');
-            // Numaralı liste yakalama (cümle sonundan sonra)
             t = t.replace(/([\.!?\)])\s*(\d+)[\)\.:]\s+/g, '$1\n$2. ');
 
-            // Satır başı normalizasyonu
             const lines = t.split('\n').map(l => {
                 let line = l;
-                // Başlık + madde karışımı: "### - ..." -> "- ..."
+               
                 line = line.replace(/^\s*#{1,6}\s*-\s+/, '- ');
-                // Farklı madde işaretlerini normalize et: • · ‣ ▪ – — -  → "- "
                 line = line.replace(/^\s*[•·‣▪–—-]+\s+/, '- ');
-                // 1) veya 1: biçimini 1. yap
                 line = line.replace(/^\s*(\d+)[\)\:]+\s+/, '$1. ');
-                // Satır sonundaki gereksiz ### kaldır
                 line = line.replace(/\s*#{2,6}\s*$/, '');
-                // Boş kalın işaretleri ("** **") kaldır
                 line = line.replace(/\*\*\s*\*\*/g, '');
                 return line;
             });
 
             t = lines.join('\n');
-            // Birden fazla boş satırı sadeleştir
+           
             t = t.replace(/\n{3,}/g, '\n\n');
             return t.trim();
         }
 
         function getLastUserMessage() {
-            // Son kullanıcı mesajını bulmak için chatMessages içindeki son .message.user'ı bul
+         
             const messages = Array.from(document.querySelectorAll('.message.user .message-content'));
             if (messages.length === 0) return '';
             return messages[messages.length - 1].textContent;
@@ -248,14 +231,14 @@
                 const response = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: JSON.stringify({ tool: 'belge_sec_ve_acikla', report_id: reportId, sorgu: userMsg }) })
+                    body: JSON.stringify({ message: JSON.stringify({ tool: 'choose_file_and_explain', report_id: reportId, sorgu: userMsg }) })
                 });
                 const data = await response.json();
                 hideTypingIndicator();
                 addMessage('bot', data.response);
             } catch (error) {
                 hideTypingIndicator();
-                addMessage('bot', 'Belge açıklama isteği gönderilirken hata oluştu.');
+                addMessage('bot', 'An error occur.');
             }
         }
 
@@ -283,7 +266,6 @@
                 conversationStarted = true;
             }
 
-            // Disable input and button
             input.disabled = true;
             sendBtn.disabled = true;
 
@@ -291,7 +273,6 @@
             addMessage('user', message);
             input.value = '';
 
-            // Show typing indicator
             showTypingIndicator();
 
             try {
@@ -313,7 +294,7 @@
 
             } catch (error) {
                 hideTypingIndicator();
-                addMessage('bot', 'Üzgünüm, mesaj işlenirken bir hata oluştu. Lütfen tekrar deneyin.');
+                addMessage('bot', 'Sorry, something went wrong. Try again!');
             }
 
             // Re-enable input and button
@@ -337,10 +318,10 @@
             window.open('/tutorial', '_blank');
         }
 
-        // Initialize page when loaded
+      
         document.addEventListener('DOMContentLoaded', async function() {
             document.getElementById('messageInput').focus();
-            // Gönder butonunu mesaj boşken devre dışı tut
+          
             const inputEl = document.getElementById('messageInput');
             const sendEl = document.getElementById('sendBtn');
             function toggleSend() {
@@ -350,7 +331,6 @@
             }
             inputEl.addEventListener('input', toggleSend);
             toggleSend();
-            // Model listesini çek
             try {
                 const resp = await fetch('/api/models');
                 const data = await resp.json();
@@ -368,7 +348,7 @@
                     await fetch('/api/model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: chosen }) });
                 };
             } catch (e) {
-                console.warn('Model listesi alınamadı', e);
+                console.warn('Model error', e);
             }
         });
 
@@ -400,11 +380,10 @@
         });
 
         window.hideInfoBox = function() {
-            const infoBox = document.getElementById('infoBox'); // Sadece burada tanımlanır
+            const infoBox = document.getElementById('infoBox'); 
             if(infoBox) infoBox.style.display = 'none';
         };
 
-        // Dosya adı gösterme ve sürükle-bırak alanı için JS
         const chatReportFile = document.getElementById('chatReportFile');
         const uploadArea = document.querySelector('.upload-area');
         const fileNameDisplay = document.getElementById('fileName');
@@ -461,9 +440,9 @@
                 });
                 const data = await resp.json();
                 if (data.success) {
-                    msg.textContent = 'Rapor başarıyla yüklendi ve işlendi.';
+                    msg.textContent = 'Report successfully uploaded.';
                     msg.style.color = '#10B981'; // Green for success
-                    addMessage('bot', 'Belgeniz başarıyla işlendi. Şimdi bu belge hakkında sorularınızı sorabilirsiniz.');
+                    addMessage('bot', 'Your file has been processed. Now, you can ask anything you want!');
                     fileInput.value = '';
                     uploaderInput.value = '';
                 } else {
@@ -471,7 +450,7 @@
                     msg.style.color = '#EF4444'; // Red for error
                 }
             } catch (err) {
-                msg.textContent = 'Yükleme sırasında bir ağ hatası oluştu.';
+                msg.textContent = 'Network Error.';
                 msg.style.color = '#EF4444';
             } finally {
                 // Hide the message after a few seconds
