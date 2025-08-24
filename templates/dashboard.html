@@ -3,99 +3,99 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sorgu Dashboard</title>
+    <title>Query Dashboard</title>
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body class="dashboard-body">
     <div class="dashboard-container">
         <div class="dashboard-header">
             <div>
-                <h1>📊 Sorgu Dashboard'u</h1>
-                <p>Sistem etkileşimlerinizin bir özeti.</p>
+                <h1>📊 Query Dashboard</h1>
+                <p>A Summary | System Interaction</p>
             </div>
             <div class="header-actions">
-                <button id="themeBtn" class="theme-btn" title="Karanlık/Aydınlık Tema">🌙</button>
-                <a href="/tutorial" class="back-btn">📖 Özellikler</a>
-                <a href="/" class="back-btn">← Sohbete Dön</a>
+                <button id="themeBtn" class="theme-btn" title="Darl/White Tema">🌙</button>
+                <a href="/tutorial" class="back-btn">📖 Features</a>
+                <a href="/" class="back-btn">← Go Back To Chit Chat!</a>
             </div>
         </div>
 
         <div class="stats-cards">
             <div class="stat-card">
-                <div class="stat-title">Toplam Rapor</div>
+                <div class="stat-title">All Reports</div>
                 <div class="stat-value" id="statTotalReports">-</div>
             </div>
             <div class="stat-card">
-                <div class="stat-title">İşlenen</div>
+                <div class="stat-title">Processed</div>
                 <div class="stat-value" id="statProcessedReports">-</div>
             </div>
             <div class="stat-card">
-                <div class="stat-title">Bekleyen</div>
+                <div class="stat-title">Pending</div>
                 <div class="stat-value" id="statPendingReports">-</div>
             </div>
             <div class="stat-card">
-                <div class="stat-title">Açık Talepler</div>
+                <div class="stat-title">Open Tickets</div>
                 <div class="stat-value" id="statOpenTickets">-</div>
             </div>
         </div>
 
         <div class="dashboard-grid">
             <div class="grid-item">
-                <h2>Destek Talepleri</h2>
+                <h2>Support Tickets</h2>
                 <div class="table-wrapper">
                     <table>
                         <thead>
                             <tr>
                                 <th>ID</th>
                                 <th>Departman</th>
-                                <th>Açıklama</th>
-                                <th>Durum</th>
-                                <th>Oluşturulma</th>
+                                <th>Explanation</th>
+                                <th>Status</th>
+                                <th>Process</th>
                             </tr>
                         </thead>
                         <tbody id="supportTicketsTable">
-                            <!-- JS ile doldurulacak -->
+    
                         </tbody>
                     </table>
                 </div>
             </div>
 
             <div class="grid-item">
-                <h2>Yüklenen Raporlar</h2>
+                <h2>Uploaded Reports</h2>
                 <div class="table-wrapper">
-                    <button id="deleteAllBtn" class="delete-btn" style="margin-bottom:10px;">Tümünü Kalıcı Sil</button>
+                    <button id="deleteAllBtn" class="delete-btn" style="margin-bottom:10px;">Delete All</button>
                     <table>
                         <thead>
                             <tr>
                                 <th>ID</th>
-                                <th>Dosya Adı</th>
-                                <th>Yükleyen</th>
-                                <th>Yükleme Tarihi</th>
-                                <th>İndir</th>
-                                <th>Sil</th>
+                                <th>Folder Name</th>
+                                <th>Uploaded By</th>
+                                <th>Upload Date</th>
+                                <th>Download</th>
+                                <th>Delete</th>
                             </tr>
                         </thead>
                         <tbody id="reportsTable">
-                            <!-- JS ile doldurulacak -->
+                          
                         </tbody>
                     </table>
                 </div>
             </div>
 
             <div class="grid-item grid-item-full-width">
-                <h2>Sorgu Geçmişi</h2>
+                <h2>Query History</h2>
                  <div class="table-wrapper">
                     <table>
                         <thead>
                             <tr>
-                                <th>Tür</th>
-                                <th>Kullanıcı Mesajı</th>
-                                <th>Bot Cevabı</th>
-                                <th>Tarih</th>
+                                <th>Type</th>
+                                <th>User Message</th>
+                                <th>Bot Response</th>
+                                <th>Date</th>
                             </tr>
                         </thead>
                         <tbody id="historyTable">
-                            <!-- JS ile doldurulacak -->
+                        
                         </tbody>
                     </table>
                 </div>
@@ -130,16 +130,16 @@
             };
         });
 
-        // Veri Çekme ve Tabloları Doldurma
+     
         document.addEventListener('DOMContentLoaded', async function() {
             try {
-                // Destek Talepleri
+            
                 const supportResponse = await fetch('/api/support_tickets');
                 const supportTickets = await supportResponse.json();
                 const supportTableBody = document.getElementById('supportTicketsTable');
-                supportTableBody.innerHTML = ''; // Clear existing
+                supportTableBody.innerHTML = ''; 
                 if (supportTickets.length === 0) {
-                     supportTableBody.innerHTML = '<tr><td colspan="5">Gösterilecek destek talebi yok.</td></tr>';
+                     supportTableBody.innerHTML = '<tr><td colspan="5">There is no support ticket to display.</td></tr>';
                 } else {
                     supportTickets.forEach(ticket => {
                         const row = `<tr>
@@ -153,13 +153,12 @@
                     });
                 }
 
-                // Yüklenen Raporlar
                 const reportsResponse = await fetch('/reports');
                 const reports = await reportsResponse.json();
                 const reportsTableBody = document.getElementById('reportsTable');
-                reportsTableBody.innerHTML = ''; // Clear existing
+                reportsTableBody.innerHTML = '';
                 if (reports.length === 0) {
-                    reportsTableBody.innerHTML = '<tr><td colspan="4">Henüz rapor yüklenmemiş.</td></tr>';
+                    reportsTableBody.innerHTML = '<tr><td colspan="4">No report yet.<td></tr>';
                 } else {
                     reports.forEach(report => {
                         const row = `<tr id="report-row-${report.id}">
@@ -168,18 +167,18 @@
                             <td>${report.uploader_name}</td>
                             <td>${new Date(report.created_at).toLocaleString('tr-TR')}</td>
                             <td><a href="/download_report/${report.stored_filename}" class="download-link">İndir</a></td>
-                            <td><button onclick="deleteReport(${report.id})" class="delete-btn">Sil</button></td>
+                            <td><button onclick="deleteReport(${report.id})" class="delete-btn">Delete</button></td>
                         </tr>`;
                         reportsTableBody.innerHTML += row;
                     });
                 }
                 
-                // Sorgu Geçmişi
+           
                 const historyResponse = await fetch('/api/history');
                 const history = await historyResponse.json();
                 const historyTableBody = document.getElementById('historyTable');
-                historyTableBody.innerHTML = ''; // Clear existing
-                // Dashboard istatistiklerini doldur
+                historyTableBody.innerHTML = ''; 
+               
                 try {
                     const dash = await fetch('/api/issues').then(r => r.json());
                     if (dash && dash.reports) {
@@ -192,10 +191,10 @@
                         document.getElementById('statOpenTickets').textContent = open;
                     }
                 } catch (e) {
-                    // Sessizce geç
+                    print(e)
                 }
                  if (history.length === 0) {
-                    historyTableBody.innerHTML = '<tr><td colspan="4">Gösterilecek sorgu geçmişi yok.</td></tr>';
+                    historyTableBody.innerHTML = '<tr><td colspan="4">There is no query yet.</td></tr>';
                 } else {
                     history.forEach(item => {
                         const row = `<tr>
@@ -209,15 +208,15 @@
                 }
 
             } catch (error) {
-                console.error("Dashboard verileri yüklenirken hata oluştu:", error);
-                document.getElementById('reportsTable').innerHTML = '<tr><td colspan="4">Veriler yüklenemedi.</td></tr>';
-                document.getElementById('supportTicketsTable').innerHTML = '<tr><td colspan="5">Veriler yüklenemedi.</td></tr>';
-                document.getElementById('historyTable').innerHTML = '<tr><td colspan="4">Veriler yüklenemedi.</td></tr>';
+                console.error("An error occur while tried to load dashboard data:", error);
+                document.getElementById('reportsTable').innerHTML = '<tr><td colspan="4">Data Couldnt Processed.<td></tr>';
+                document.getElementById('supportTicketsTable').innerHTML = '<tr><td colspan="5">Data Couldnt Loaded.</td></tr>';
+                document.getElementById('historyTable').innerHTML = '<tr><td colspan="4">Data/Query History Couldnt Loaded.</td></tr>';
             }
         });
 
         async function deleteReport(reportId) {
-            if (!confirm("Bu raporu kalıcı olarak silmek istediğinizden emin misiniz?")) {
+            if (!confirm("Are you sure do you want to delete this report forever?")) {
                 return;
             }
             try {
@@ -226,39 +225,38 @@
                 });
                 const result = await response.json();
                 if (result.success) {
-                    // Remove the row from the table
+                  
                     const row = document.getElementById(`report-row-${reportId}`);
                     if (row) {
                         row.remove();
                     }
-                    alert('Rapor başarıyla silindi.');
+                    alert('Rapor deleted successfully.');
                 } else {
                     alert(`Hata: ${result.message}`);
                 }
             } catch (error) {
-                console.error("Rapor silinirken hata:", error);
-                alert("Rapor silinirken bir ağ hatası oluştu.");
+                console.error("Report error occured:", error);
+                alert("An error occured in network connection.");
             }
         }
 
-        // Tümünü Sil butonu
         document.addEventListener('DOMContentLoaded', function() {
             const deleteAllBtn = document.getElementById('deleteAllBtn');
             if (deleteAllBtn) {
                 deleteAllBtn.onclick = async function() {
-                    if (!confirm("Tüm raporları ve ilişkili verileri kalıcı olarak silmek istediğinizden emin misiniz?")) return;
+                    if (!confirm("Are you sure you want to delete all reports and related data forever?")) return;
                     try {
                         const response = await fetch('/delete_all_reports', { method: 'DELETE' });
                         const result = await response.json();
                         if (result.success) {
-                            // Tablodan tüm satırları kaldır
-                            document.getElementById('reportsTable').innerHTML = '<tr><td colspan="4">Henüz rapor yüklenmemiş.</td></tr>';
-                            alert('Tüm raporlar ve ilişkili veriler başarıyla silindi.');
+                      
+                            document.getElementById('reportsTable').innerHTML = '<tr><td colspan="4">There is no report yet.<td></tr>';
+                            alert('All reports and related data has been deleted successfully.');
                         } else {
-                            alert('Hata: ' + result.message);
+                            alert('Error: ' + result.message);
                         }
                     } catch (error) {
-                        alert('Silme işlemi sırasında hata oluştu.');
+                        alert('A error occured in deleting process.');
                     }
                 }
             }
