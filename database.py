@@ -23,7 +23,7 @@ def get_db_connection():
     return conn
 
 def init_db(db_name_override=None):
-    """Initializes the database and creates tables if they don't exist."""
+    """Initializes the database, creates tables and seeds default data if needed."""
     # Allow overriding DB name for initial setup, useful if called before env var is set by test runner
     current_db_name = db_name_override or DATABASE_NAME
 
@@ -96,16 +96,26 @@ def init_db(db_name_override=None):
     ''')
 
     conn.commit()
+
+    # Seed default data while we already have a connection to the target database
+    seed_default_knowledge(conn)
+    seed_default_users(conn)
+
     conn.close()
 
-def seed_default_users():
+def seed_default_users(conn: Optional[sqlite3.Connection] = None):
     """Seeds 5 default internal profiles if table is empty."""
-    conn = get_db_connection()
+    close_conn = False
+    if conn is None:
+        conn = get_db_connection()
+        close_conn = True
+
     cur = conn.cursor()
     cur.execute('SELECT COUNT(*) FROM users')
     count = cur.fetchone()[0]
     if count and count > 0:
-        conn.close()
+        if close_conn:
+            conn.close()
         return
     default_users = [
         ("u-it-01", "Ali Yılmaz", "Kıdemli Yazılım Mühendisi", "IT"),
@@ -116,27 +126,42 @@ def seed_default_users():
     ]
     cur.executemany('INSERT OR IGNORE INTO users (id, name, title, department) VALUES (?, ?, ?, ?)', default_users)
     conn.commit()
-    conn.close()
 
-def seed_default_knowledge():
-    """Institution knowledge base için varsayılan kayıtları ekler (yoksa)."""
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT COUNT(*) FROM institution_knowledge')
-    count = cur.fetchone()[0]
-    if count and count > 0:
+    if close_conn:
         conn.close()
-        return
+
+def seed_default_knowledge(conn: Optional[sqlite3.Connection] = None):
+    """Institution knowledge base için varsayılan kayıtları ekler veya günceller."""
+    close_conn = False
+    if conn is None:
+        conn = get_db_connection()
+        close_conn = True
+
+    cur = conn.cursor()
 
     defaults = [
         ("seyahat politikası, seyahat, yolculuk, konaklama", "Şirketimizde şehir dışı seyahatler için önceden onay alınmalı ve masraflar fatura ile belgelendirilmelidir."),
-        ("izin prosedürü, izin, yıllık izin", "Yıllık izinler için en az 3 gün önceden İnsan Kaynakları'na başvurulmalıdır."),
-        ("mesai ücreti, fazla mesai, mesai", "Fazla mesai ücretleri ilgili ayın sonunda bordroya yansıtılır."),
-        ("yemekhane, yemek, öğle yemeği", "Yemekhane hafta içi 12:00-14:00 saatleri arasında açıktır."),
+        ("izin prosedürü, izin, yıllık izin", "Yıllık izinler için en az 3 gün önceden İK'ya başvurulmalıdır."),
+        ("mesai ücreti, fazla mesai, mesai", "Fazla mesai ücretleri, ilgili ayın sonunda bordroya yansıtılır."),
+        ("yemekhane, yemek, öğle yemeği", "Yemekhane hafta içi 12:00-14:00 arası açıktır."),
     ]
-    cur.executemany('INSERT INTO institution_knowledge (keywords, answer) VALUES (?, ?)', defaults)
+
+    for keywords, answer in defaults:
+        cur.execute('SELECT id, answer FROM institution_knowledge WHERE keywords = ?', (keywords,))
+        row = cur.fetchone()
+        if row:
+            if row['answer'] != answer:
+                cur.execute(
+                    "UPDATE institution_knowledge SET answer = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (answer, row['id'])
+                )
+        else:
+            cur.execute('INSERT INTO institution_knowledge (keywords, answer) VALUES (?, ?)', (keywords, answer))
+
     conn.commit()
-    conn.close()
+
+    if close_conn:
+        conn.close()
 
 def _normalize_text(text: str) -> str:
     if not isinstance(text, str):

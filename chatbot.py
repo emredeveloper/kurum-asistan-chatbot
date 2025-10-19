@@ -142,7 +142,13 @@ Kurumsal notlar:
 
 Yanıt:
 """
-            return self.ollama_chat(prompt, model=None if not hasattr(self, 'user_models') else None)
+            llm_response = self.ollama_chat(prompt, model=None if not hasattr(self, 'user_models') else None)
+
+            if not llm_response or llm_response.startswith("LLM hatası:") or "yanıt alınamadı" in llm_response.lower():
+                fallback = database.search_kb_answer(soru)
+                return fallback or "Bu konuda bilgi bulunamadı."
+
+            return llm_response
         except Exception:
             return "Bu konuda bilgi bulunamadı."
 
