@@ -3,95 +3,95 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Query Dashboard</title>
+    <title>Sorgu Dashboard</title>
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body class="dashboard-body">
     <div class="dashboard-container">
         <div class="dashboard-header">
             <div>
-                <h1>📊 Query Dashboard</h1>
-                <p>A Summary | System Interaction</p>
+                <h1>📊 Sorgu Dashboard</h1>
+                <p>Özet | Sistem Etkileşimleri</p>
             </div>
             <div class="header-actions">
-                <button id="themeBtn" class="theme-btn" title="Darl/White Tema">🌙</button>
-                <a href="/tutorial" class="back-btn">📖 Features</a>
-                <a href="/" class="back-btn">← Go Back To Chit Chat!</a>
+                <button id="themeBtn" class="theme-btn" title="Koyu/Açık Tema">🌙</button>
+                <a href="/tutorial" class="back-btn">📖 Özellikler</a>
+                <a href="/" class="back-btn">← Sohbete Geri Dön!</a>
             </div>
         </div>
 
         <div class="stats-cards">
             <div class="stat-card">
-                <div class="stat-title">All Reports</div>
+                <div class="stat-title">Tüm Raporlar</div>
                 <div class="stat-value" id="statTotalReports">-</div>
             </div>
             <div class="stat-card">
-                <div class="stat-title">Processed</div>
+                <div class="stat-title">İşlenen</div>
                 <div class="stat-value" id="statProcessedReports">-</div>
             </div>
             <div class="stat-card">
-                <div class="stat-title">Pending</div>
+                <div class="stat-title">Beklemede</div>
                 <div class="stat-value" id="statPendingReports">-</div>
             </div>
             <div class="stat-card">
-                <div class="stat-title">Open Tickets</div>
+                <div class="stat-title">Açık Talepler</div>
                 <div class="stat-value" id="statOpenTickets">-</div>
             </div>
         </div>
 
         <div class="dashboard-grid">
             <div class="grid-item">
-                <h2>Support Tickets</h2>
+                <h2>Destek Talepleri</h2>
                 <div class="table-wrapper">
                     <table>
                         <thead>
                             <tr>
                                 <th>ID</th>
                                 <th>Departman</th>
-                                <th>Explanation</th>
-                                <th>Status</th>
-                                <th>Process</th>
+                                <th>Açıklama</th>
+                                <th>Durum</th>
+                                <th>İşlem</th>
                             </tr>
                         </thead>
                         <tbody id="supportTicketsTable">
-    
+
                         </tbody>
                     </table>
                 </div>
             </div>
 
             <div class="grid-item">
-                <h2>Uploaded Reports</h2>
+                <h2>Yüklenen Raporlar</h2>
                 <div class="table-wrapper">
-                    <button id="deleteAllBtn" class="delete-btn" style="margin-bottom:10px;">Delete All</button>
+                    <button id="deleteAllBtn" class="delete-btn" style="margin-bottom:10px;">Hepsini Sil</button>
                     <table>
                         <thead>
                             <tr>
                                 <th>ID</th>
-                                <th>Folder Name</th>
-                                <th>Uploaded By</th>
-                                <th>Upload Date</th>
-                                <th>Download</th>
-                                <th>Delete</th>
+                                <th>Klasör Adı</th>
+                                <th>Yükleyen</th>
+                                <th>Yükleme Tarihi</th>
+                                <th>İndir</th>
+                                <th>Sil</th>
                             </tr>
                         </thead>
                         <tbody id="reportsTable">
-                          
+
                         </tbody>
                     </table>
                 </div>
             </div>
 
             <div class="grid-item grid-item-full-width">
-                <h2>Query History</h2>
+                <h2>Sorgu Geçmişi</h2>
                  <div class="table-wrapper">
                     <table>
                         <thead>
                             <tr>
-                                <th>Type</th>
-                                <th>User Message</th>
-                                <th>Bot Response</th>
-                                <th>Date</th>
+                                <th>Tür</th>
+                                <th>Kullanıcı Mesajı</th>
+                                <th>Bot Yanıtı</th>
+                                <th>Tarih</th>
                             </tr>
                         </thead>
                         <tbody id="historyTable">
