@@ -22,13 +22,14 @@ LM_STUDIO_API_KEY = os.getenv("LM_STUDIO_API_KEY", "")
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "BURAYA_API_KEY_GIRIN")
 
 class CitizenAssistantBot:
-    DEPARTMANLAR = ["IT", "İnsan Kaynakları", "Muhasebe", "Teknik Servis"]
 
     def __init__(self):
         # self.histories and self.all_support_tickets are now removed
         # User states are kept in memory for the duration of a session's multi-turn interactions
         self.user_states = {}
         self.user_models = {}
+        # Load departments dynamically at startup
+        self.DEPARTMANLAR = database.get_departments()
 
     def set_user_model(self, user_id: str, model_name: str | None):
         if not user_id:
@@ -153,22 +154,14 @@ Yanıt:
             return "Bu konuda bilgi bulunamadı."
 
     # The following def process_message was the start of the duplicated block.
-    # The lines "if anahtar in soru.lower(): return cevap" and "return "Bu konuda..."
-    # were remnants of the old get_kurum_bilgisi logic that got misplaced.
-    # They are removed by this diff not including them before the correct process_message.
-
-    def process_message(self, message: str, user_id: str) -> str:
+    def _handle_support_ticket_interaction(self, message: str, user_id: str):
+        """Handles the multi-turn conversation for creating a support ticket.
+        Returns a response if the user is in a ticket creation flow, otherwise None.
+        """
         user_state = self.user_states.setdefault(user_id, {})
-        bot_response = "" # Initialize bot_response
+        bot_response = None
 
-        # Bağlam için son 3 mesajı al from database
-        db_history = database.get_chat_history(user_id, limit=3) # Returns newest first
-        context_msgs = []
-        for h_entry in reversed(db_history): # Reverse to get chronological order for context
-            context_msgs.append(f"Kullanıcı: {h_entry['user_message']}\nBot: {h_entry['bot_response']}")
-        context = "\n".join(context_msgs)
-
-        # Açıklama/departman state'leri
+        # State 1: User needs to provide a description for a pending ticket
         if user_state.get('waiting_for_description') and user_state.get('pending_ticket'):
             pending_ticket_info = user_state['pending_ticket']
             pending_ticket_info['aciklama'] = message.strip()
@@ -186,31 +179,23 @@ Yanıt:
                 "ticket_id": ticket_id, "department": department, "priority": priority, "category": category
             }))
 
-            user_state['waiting_for_description'] = False
-            user_state['pending_ticket'] = None
-            user_state['last_department'] = None
+            # Clear state
+            user_state.pop('waiting_for_description', None)
+            user_state.pop('pending_ticket', None)
+            user_state.pop('last_department', None)
             return bot_response
 
+        # State 2: User needs to provide a department for a pending ticket
         if user_state.get('waiting_for_department') and user_state.get('pending_ticket'):
-            department_input = self.normalize_dept(message)
-            matched_dept = None
-            # department_input is already normalized by process_message before this state is reached,
-            # or by _handle_tool_call if LLM provides it.
-            # Let's re-normalize here to be sure, or ensure it's always normalized before this check.
-            # For now, assume department_input (user's typed message) needs normalization here.
-            normalized_department_input = self.normalize_dept(message)
+            normalized_input = self.normalize_dept(message)
+            matched_dept = next((dept for dept in self.DEPARTMANLAR if self.normalize_dept(dept) in normalized_input), None)
 
-            for dept_option in self.DEPARTMANLAR:
-                normalized_dept_option = self.normalize_dept(dept_option)
-                if normalized_dept_option in normalized_department_input or normalized_department_input == normalized_dept_option:
-                    matched_dept = dept_option # Store the original department name
-                    break
             if not matched_dept:
                 bot_response = f"Geçersiz departman. Lütfen şu seçeneklerden birini yazın: {', '.join(self.DEPARTMANLAR)}"
                 database.add_chat_history(user_id, "destek_talebi_etkileşim", message, bot_response)
                 return bot_response
 
-            user_state['pending_ticket']['departman'] = matched_dept # Store original casing
+            user_state['pending_ticket']['departman'] = matched_dept
             user_state['last_department'] = matched_dept
             user_state['waiting_for_department'] = False
             user_state['waiting_for_description'] = True
@@ -218,14 +203,17 @@ Yanıt:
             database.add_chat_history(user_id, "destek_talebi_etkileşim", message, bot_response)
             return bot_response
 
-        # 0) Hızlı bilgi tabanı kontrolü (LLM'e gitmeden önce)
+        return None # No state handled
+
+    def _handle_quick_queries(self, message: str, user_id: str):
+        """Tries to answer common queries without a full LLM tool-use prompt."""
+        # Quick knowledge base check
         kb_answer = self.get_kurum_bilgisi(message)
         if kb_answer and kb_answer != "Bu konuda bilgi bulunamadı.":
-            bot_response = kb_answer
-            database.add_chat_history(user_id, "kurum_bilgisi_llm", message, bot_response, json.dumps({"matched": True}))
-            return bot_response
+            database.add_chat_history(user_id, "kurum_bilgisi_llm", message, kb_answer, json.dumps({"matched": True}))
+            return kb_answer
 
-        # 0.5) Hızlı özetleme heuristiği (LLM'e gitmeden önce)
+        # Quick summarization heuristic
         lower_msg = message.lower()
         if any(kw in lower_msg for kw in ["özet", "özetle", "özetini", "özet çıkar", "kısaca özet"]):
             user_reports = database.get_reports(user_id)
@@ -237,18 +225,23 @@ Yanıt:
                 report_id = user_reports[0]['id']
                 return self._summarize_report(report_id, message, user_id)
             else:
-                # Mevcut UI seçim butonlarıyla uyum için aynı metni kullanıyoruz
                 report_options = [f"{r['id']}: {r['original_filename']}" for r in user_reports]
                 options_text = '\n'.join(report_options)
                 bot_response = (
-                    "Birden fazla belge bulundu. Lütfen açıklamak istediğiniz belgeyi seçin (ID ile):\n"
+                    "Birden fazla belge bulundu. Lütfen özetlemek istediğiniz belgeyi seçin (ID ile):\n"
                     f"{options_text}\n"
-                    "Örnek: belgeyi açıkla 12"
+                    "Örnek: belgeyi özetle 12"
                 )
                 database.add_chat_history(user_id, "belge_ozet_secim", message, bot_response)
                 return bot_response
+        return None
 
-        # 1) LLM ile tool chain/fonksiyon çağrısı
+    def _decide_and_execute_tool(self, message: str, user_id: str):
+        """Uses LLM to detect a tool call, then executes it."""
+        db_history = database.get_chat_history(user_id, limit=3)
+        context_msgs = [f"Kullanıcı: {h['user_message']}\nBot: {h['bot_response']}" for h in reversed(db_history)]
+        context = "\n".join(context_msgs)
+
         llm_prompt = f'''
 Aşağıda son konuşma geçmişi ve yeni kullanıcı mesajı var. Eğer bir veya birden fazla tool çağrısı gerekiyorsa bana şu formatta JSON döndür:
 Tek tool için: {{"tool": "hava_durumu", "sehir": "İstanbul"}}
@@ -265,62 +258,77 @@ Son konuşma geçmişi:
 Kullanıcı mesajı: {message}
 '''
         llm_response = self.ollama_chat(llm_prompt, model=self.user_models.get(user_id))
-        # LLM çıktısından JSON çıkarma (kod bloğu veya metin içinde gömülü olabilir)
         data = self._extract_json(llm_response)
-        try:
-            # Çoklu tool chain desteği
-            if isinstance(data, list):
-                results = []
-                for item in data:
-                    results.append(self._handle_tool_call(item, message, user_id))
-                return "\n\n".join(results)
-            # Tek tool
-            if isinstance(data, dict) and data.get('tool'): # Reverted to original condition
-                return self._handle_tool_call(data, message, user_id)
-        except Exception:
-            pass
-        # Tool call yoksa, tarih ve diğer tool'lar için eski kodu kullan
-        lower_msg = message.lower()
-        date_type = None
-        date_details = None
 
+        try:
+            if isinstance(data, list):
+                results = [self._handle_tool_call(item, message, user_id) for item in data]
+                return "\n\n".join(results)
+            if isinstance(data, dict) and data.get('tool'):
+                return self._handle_tool_call(data, message, user_id)
+        except Exception as e:
+            print(f"Tool execution error: {e}") # Log error
+        return None
+
+    def _handle_date_queries(self, message: str, user_id: str):
+        """Handles simple, non-LLM date-related queries as a fallback."""
+        lower_msg = message.lower()
+        date_details = None
+        date_type = None
+        bot_response = None
+        now = datetime.datetime.now()
+
+        gunler = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
+        aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
+
+        target_date = None
         if "bugün" in lower_msg:
-            bugun = datetime.datetime.now()
-            gunler = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
-            bot_response = f"Bugün {gunler[bugun.weekday()]}, {bugun.day} {bugun.strftime('%B %Y')}."
-            date_type = "tarih_bugün"
-            date_details = {"tarih_detay": bugun.strftime("%Y-%m-%d")}
+            target_date, date_type = now, "tarih_bugün"
         elif "yarın" in lower_msg:
-            yarin = datetime.datetime.now() + datetime.timedelta(days=1)
-            gunler = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
-            bot_response = f"Yarın {gunler[yarin.weekday()]}, {yarin.day} {yarin.strftime('%B %Y')}."
-            date_type = "tarih_yarın"
-            date_details = {"tarih_detay": yarin.strftime("%Y-%m-%d")}
+            target_date, date_type = now + datetime.timedelta(days=1), "tarih_yarın"
         elif "dün" in lower_msg:
-            dun = datetime.datetime.now() - datetime.timedelta(days=1)
-            gunler = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
-            bot_response = f"Dün {gunler[dun.weekday()]}, {dun.day} {dun.strftime('%B %Y')}."
-            date_type = "tarih_dün"
-            date_details = {"tarih_detay": dun.strftime("%Y-%m-%d")}
+            target_date, date_type = now - datetime.timedelta(days=1), "tarih_dün"
         else:
             try:
-                dt = parser.parse(message, fuzzy=True, dayfirst=True)
-                gunler = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
-                aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
-                gun_adi = gunler[dt.weekday()]
-                ay_adi = aylar[dt.month-1]
-                bot_response = f"{dt.day} {ay_adi} {dt.year} {gun_adi}"
-                date_type = "tarih_parse"
-                date_details = {"tarih_detay": dt.strftime("%Y-%m-%d")}
-            except Exception:
-                pass # Not a parsable date
+                target_date, date_type = parser.parse(message, fuzzy=True, dayfirst=True), "tarih_parse"
+            except (parser.ParserError, TypeError):
+                pass
 
-        if date_type and bot_response:
-            database.add_chat_history(user_id, date_type, message, bot_response, json.dumps(date_details) if date_details else None)
+        if target_date:
+            day_name = gunler[target_date.weekday()]
+            month_name = aylar[target_date.month - 1]
+            bot_response = f"{target_date.day} {month_name} {target_date.year} {day_name}"
+            date_details = {"tarih_detay": target_date.strftime("%Y-%m-%d")}
+
+        if bot_response:
+            database.add_chat_history(user_id, date_type, message, bot_response, json.dumps(date_details))
             return bot_response
+        return None
 
-        # LLM ile sohbet (eğer tool/tarih değilse)
-        bot_response = self.ollama_chat(message, model=self.user_models.get(user_id)) # Use original message for pure LLM chat
+    def process_message(self, message: str, user_id: str) -> str:
+        """Processes a user message by routing it through different handlers."""
+        # Step 1: Handle multi-turn conversation states (e.g., support ticket)
+        state_response = self._handle_support_ticket_interaction(message, user_id)
+        if state_response:
+            return state_response
+
+        # Step 2: Try quick handlers for KB and summarization before complex LLM calls
+        quick_response = self._handle_quick_queries(message, user_id)
+        if quick_response:
+            return quick_response
+
+        # Step 3: Use LLM to decide and execute a tool
+        tool_response = self._decide_and_execute_tool(message, user_id)
+        if tool_response:
+            return tool_response
+
+        # Step 4: Fallback for simple date queries
+        date_response = self._handle_date_queries(message, user_id)
+        if date_response:
+            return date_response
+
+        # Step 5: If no other handler caught the message, use LLM for a general chat response
+        bot_response = self.ollama_chat(message, model=self.user_models.get(user_id))
         database.add_chat_history(user_id, "llm_cevap", message, bot_response)
         return bot_response
 

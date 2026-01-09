@@ -164,5 +164,5 @@ def test_support_ticket_flow_no_llm(mocker):
 
     # User state should be cleared
     assert bot.user_states[test_user_id].get('pending_ticket') is None
-    assert bot.user_states[test_user_id].get('waiting_for_description') is False
+    assert 'waiting_for_description' not in bot.user_states[test_user_id]
     assert bot.user_states[test_user_id].get('last_department') is None
