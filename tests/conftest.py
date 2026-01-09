@@ -5,30 +5,36 @@ import sys
 # Add the project root to the Python path to allow imports of app and chatbot
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from app import app as flask_app # Import the Flask app instance
-import database # Import your database module
+import database
+from chatbot import CitizenAssistantBot
+import app as app_module
 
 TEST_DB_NAME = "test_chatbot_data.db"
 
 @pytest.fixture(scope="session")
 def app():
     """Create and configure a new app instance for each test session."""
-    flask_app.config.update({
-        "TESTING": True,
-        "SECRET_KEY": "testing_secret_key", # Test specific secret key
-        # Add other test-specific configurations if needed
-    })
 
-    # Set the database URL for testing BEFORE database.init_db() is called by any other fixture or test
+    # Set the database URL for testing BEFORE database.init_db() is called
     os.environ['TEST_DATABASE_URL'] = TEST_DB_NAME
 
     # Clean up old test database if it exists from a previous failed run
     if os.path.exists(TEST_DB_NAME):
         os.remove(TEST_DB_NAME)
 
-    # Initialize the test database (this will now use TEST_DB_NAME due to the env var)
-    # Explicitly pass the test DB name to init_db for clarity and robustness during test setup
+    # Initialize the test database.
     database.init_db(db_name_override=TEST_DB_NAME)
+
+    # Now that the DB is initialized, create the bot and assign it to the app module's global variable
+    app_module.bot = CitizenAssistantBot()
+    flask_app = app_module.app
+
+
+    flask_app.config.update({
+        "TESTING": True,
+        "SECRET_KEY": "testing_secret_key", # Test specific secret key
+        # Add other test-specific configurations if needed
+    })
 
     yield flask_app
 

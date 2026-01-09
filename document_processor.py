@@ -35,12 +35,14 @@ class DocumentProcessor:
                 if self.faiss is not None:
                     self.index = self.faiss.read_index(INDEX_FILE)
                 with open(METADATA_FILE, 'r', encoding='utf-8') as f:
-                    self.metadata = json.load(f)
+                    # Metadata'yı yüklerken anahtarları integer'a çevir (JSON string olarak kaydeder)
+                    self.metadata = {int(k): v for k, v in json.load(f).items()}
             except Exception as e:
                 print(f"Could not load existing index or metadata: {e}")
                 self.index = None
-                self.metadata = []
-        # Index yoksa burada oluşturmayalım; ilk ihtiyaç anında boyutu bilip oluşturacağız
+                self.metadata = {}
+        else:
+            self.metadata = {}
 
 
     def _save(self):
@@ -159,24 +161,30 @@ class DocumentProcessor:
             
             # Check if index exists and its dimension matches
             d = self.model.get_sentence_embedding_dimension()
-            if self.index is None or getattr(self.index, 'd', None) != d:
+            if self.index is None:
                 self._ensure_faiss()
                 if self.faiss is None:
                     print("[RAG-WARN] FAISS bulunamadı; indeksleme devre dışı.")
                     return
-                self.index = self.faiss.IndexFlatL2(d)
-                self.metadata = []
+                # IndexIDMap, vektörlere özel ID'ler atamamızı sağlar.
+                base_index = self.faiss.IndexFlatL2(d)
+                self.index = self.faiss.IndexIDMap2(base_index)
+                self.metadata = {}
 
+            # Her bir chunk için benzersiz bir ID oluştur
+            # Basit bir sayaç veya daha sağlam bir UUID kullanılabilir.
+            # Şimdilik mevcut metadata boyutunu temel alan bir sayaç kullanalım.
+            start_id = max(self.metadata.keys()) + 1 if self.metadata else 1
+            ids = np.arange(start_id, start_id + len(chunks))
 
-            self.index.add(np.array(embeddings).astype('float32'))
+            self.index.add_with_ids(np.array(embeddings).astype('float32'), ids)
             
             for i, chunk in enumerate(chunks):
-                chunk_metadata = {
+                chunk_id = ids[i]
+                self.metadata[chunk_id] = {
                     'report_id': report_id,
-                    'chunk_index': self.index.ntotal - len(chunks) + i,
                     'text': chunk
                 }
-                self.metadata.append(chunk_metadata)
             
             self._save()
             # Mark the report as processed in the database
@@ -195,14 +203,14 @@ class DocumentProcessor:
         self._ensure_model()
         query_embedding = self.model.encode([query], convert_to_tensor=False)
         try:
-            distances, indices = self.index.search(np.array(query_embedding).astype('float32'), top_k)
+            distances, ids = self.index.search(np.array(query_embedding).astype('float32'), top_k)
         except Exception:
             return []
         
         results = []
-        for i, idx in enumerate(indices[0]):
-            if idx < len(self.metadata):
-                meta = self.metadata[idx]
+        for i, chunk_id in enumerate(ids[0]):
+            if chunk_id in self.metadata:
+                meta = self.metadata[chunk_id]
                 results.append({
                     'text': meta['text'],
                     'report_id': meta['report_id'],
@@ -212,59 +220,30 @@ class DocumentProcessor:
 
     def delete_document(self, report_id_to_delete):
         """
-        Deletes all chunks associated with a report_id from the index and metadata.
-        This is inefficient as it requires rebuilding parts of the index. A more robust
-        solution would use an index that supports ID-based deletion like IndexIDMap.
+        Deletes all chunks associated with a report_id from the index and metadata
+        using the efficient ID-based removal of IndexIDMap.
         """
         if self.index is None or self.index.ntotal == 0:
             return
 
-        # Find all vector indices that belong to the report to be deleted
+        # Find all chunk IDs that belong to the report to be deleted
         ids_to_remove = [
-            i for i, meta in enumerate(self.metadata) 
+            chunk_id for chunk_id, meta in self.metadata.items()
             if meta.get('report_id') == report_id_to_delete
         ]
 
         if not ids_to_remove:
             return
 
-        # Create a selector to remove the corresponding vectors
-        # This is a bit complex for IndexFlatL2 which doesn't directly support removal.
-        # A more direct approach is to rebuild the index without the deleted vectors.
-        
-        new_metadata = [
-            meta for i, meta in enumerate(self.metadata) 
-            if i not in ids_to_remove
-        ]
-        
-        # Rebuild the index from preserved metadata order
-        preserved_metadata = [
-            meta for i, meta in enumerate(self.metadata)
-            if i not in ids_to_remove
-        ]
+        # Use the efficient remove_ids method from IndexIDMap
+        self.index.remove_ids(np.array(ids_to_remove))
 
-        # FAISS IndexFlatL2 doğrudan silmeyi desteklemediği için tüm vektörleri yeniden ekle
-        self._ensure_model()
-        self._ensure_faiss()
-        if self.faiss is None:
-            print("[RAG-WARN] FAISS bulunamadı; silme işleminden sonra index yeniden oluşturulamadı.")
-            self.metadata = preserved_metadata
-            self._save()
-            return
-        d = self.model.get_sentence_embedding_dimension()
-        new_index = self.faiss.IndexFlatL2(d)
-
-        if preserved_metadata:
-            preserved_texts = [meta['text'] for meta in preserved_metadata]
-            preserved_vectors = self.model.encode(preserved_texts, convert_to_tensor=False)
-            new_index.add(np.array(preserved_vectors).astype('float32'))
-
-        # Index ve metadata'yı güncelle
-        self.index = new_index
-        self.metadata = preserved_metadata
+        # Remove the corresponding metadata entries
+        for chunk_id in ids_to_remove:
+            self.metadata.pop(chunk_id, None)
 
         self._save()
-        print(f"Removed report {report_id_to_delete} from FAISS index.")
+        print(f"Removed {len(ids_to_remove)} chunks for report {report_id_to_delete} from FAISS index.")
 
 # Singleton instance
 processor = DocumentProcessor()

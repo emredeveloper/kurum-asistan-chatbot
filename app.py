@@ -20,7 +20,7 @@ app.secret_key = os.urandom(24) # Needed for session management
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB
-bot = CitizenAssistantBot()
+bot = None # Will be initialized in main after DB init
 
 # Initialize the database - This should be done carefully.
 # For testing, conftest.py will handle initializing the test DB.
@@ -321,6 +321,7 @@ def delete_all_reports():
 if __name__ == '__main__':
     # Initialize the database when running the app directly
     database.init_db()
+    bot = CitizenAssistantBot() # Initialize bot after DB is ready
     # Optional: reset state on startup based on env var (reset first, then seed)
     if os.environ.get('RESET_ON_STARTUP', '1') == '1':
         try:

@@ -231,6 +231,16 @@ def get_users():
     conn.close()
     return rows
 
+def get_departments() -> List[str]:
+    """Retrieves a unique, sorted list of departments from the users table."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT DISTINCT department FROM users ORDER BY department ASC')
+    # fetchall returns a list of tuples, e.g., [('IT',), ('İnsan Kaynakları',)]
+    departments = [row[0] for row in cur.fetchall()]
+    conn.close()
+    return departments
+
 # --- Chat History Functions ---
 def add_chat_history(user_id: str, type: str, user_message: str, bot_response: str, details_json_str: str = None):
     """Adds a new chat message to the history."""
