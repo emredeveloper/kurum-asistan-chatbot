@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 import json
 import datetime
+from typing import Iterator
 import uuid # For generating ticket IDs
 from dateutil import parser
 import database # Import the new database module
@@ -11,15 +12,25 @@ from document_processor import processor as doc_processor # Import the document 
 
 load_dotenv()
 
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "lmstudio").strip().lower()
+
 # LM Studio (OpenAI uyumlu) yapılandırması
 # Örn: LM_STUDIO_BASE_URL=http://localhost:1234/v1
 #      LM_STUDIO_MODEL=YourModelName
 #      LM_STUDIO_API_KEY=lm-studio (gerekmeyebilir)
 LM_STUDIO_BASE_URL = os.getenv("LM_STUDIO_BASE_URL", "http://localhost:1234/v1")
 # Zorunlu model
-LM_STUDIO_MODEL = os.getenv("LM_STUDIO_MODEL", "qwen/qwen3-4b-2507")
+LM_STUDIO_MODEL = os.getenv("LM_STUDIO_MODEL", "google/gemma-3-12b")
 LM_STUDIO_API_KEY = os.getenv("LM_STUDIO_API_KEY", "")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "BURAYA_API_KEY_GIRIN")
+
+
+def get_default_model():
+    if LLM_PROVIDER == "ollama":
+        return OLLAMA_MODEL
+    return LM_STUDIO_MODEL
 
 class CitizenAssistantBot:
 
@@ -47,13 +58,33 @@ class CitizenAssistantBot:
         İsim geriye dönük uyumluluk için korunmuştur (testler bu ismi mock'luyor).
         """
         try:
+            selected_model = model or get_default_model()
+
+            if LLM_PROVIDER == "ollama":
+                response = requests.post(
+                    f"{OLLAMA_BASE_URL}/api/generate",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "model": selected_model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {"temperature": 0.2}
+                    },
+                    timeout=120
+                )
+                response.raise_for_status()
+                data = response.json()
+                if data.get("response"):
+                    return data["response"].strip()
+                return "LLM'den yanÄ±t alÄ±namadÄ±."
+
             url = f"{LM_STUDIO_BASE_URL}/chat/completions"
             headers = {"Content-Type": "application/json"}
             if LM_STUDIO_API_KEY:
                 headers["Authorization"] = f"Bearer {LM_STUDIO_API_KEY}"
 
             payload = {
-                "model": (model or LM_STUDIO_MODEL),
+                "model": selected_model,
                 "messages": [
                     {"role": "user", "content": prompt}
                 ],
@@ -76,6 +107,69 @@ class CitizenAssistantBot:
             return "LLM'den yanıt alınamadı."
         except Exception as e:
             return f"LLM hatası: {e}"
+
+    def ollama_chat_stream(self, prompt: str, model: str | None = None) -> Iterator[str]:
+        selected_model = model or get_default_model()
+
+        try:
+            if LLM_PROVIDER == "ollama":
+                with requests.post(
+                    f"{OLLAMA_BASE_URL}/api/generate",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "model": selected_model,
+                        "prompt": prompt,
+                        "stream": True,
+                        "options": {"temperature": 0.2}
+                    },
+                    timeout=120,
+                    stream=True
+                ) as response:
+                    response.raise_for_status()
+                    for line in response.iter_lines(decode_unicode=True):
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        chunk = data.get("response", "")
+                        if chunk:
+                            yield chunk
+                return
+
+            headers = {"Content-Type": "application/json"}
+            if LM_STUDIO_API_KEY:
+                headers["Authorization"] = f"Bearer {LM_STUDIO_API_KEY}"
+
+            with requests.post(
+                f"{LM_STUDIO_BASE_URL}/chat/completions",
+                headers=headers,
+                json={
+                    "model": selected_model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.2,
+                    "stream": True
+                },
+                timeout=120,
+                stream=True
+            ) as response:
+                response.raise_for_status()
+                for raw_line in response.iter_lines(decode_unicode=True):
+                    if not raw_line or not raw_line.startswith("data: "):
+                        continue
+                    payload = raw_line[6:].strip()
+                    if payload == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    delta = (((data.get("choices") or [{}])[0]).get("delta") or {}).get("content", "")
+                    if delta:
+                        yield delta
+        except Exception as e:
+            yield f"\nLLM hatasÄ±: {e}"
 
     def get_weather(self, city: str) -> str:
         try:
@@ -207,6 +301,10 @@ Yanıt:
 
     def _handle_quick_queries(self, message: str, user_id: str):
         """Tries to answer common queries without a full LLM tool-use prompt."""
+        explicit_tool = self._extract_json((message or "").strip())
+        if isinstance(explicit_tool, dict) and explicit_tool.get('tool'):
+            return self._handle_tool_call(explicit_tool, message, user_id)
+
         # Quick knowledge base check
         kb_answer = self.get_kurum_bilgisi(message)
         if kb_answer and kb_answer != "Bu konuda bilgi bulunamadı.":
@@ -233,6 +331,21 @@ Yanıt:
                     "Örnek: belgeyi özetle 12"
                 )
                 database.add_chat_history(user_id, "belge_ozet_secim", message, bot_response)
+                return bot_response
+        if any(kw in lower_msg for kw in ["açıkla", "acikla", "içerik", "icerik", "anlat"]):
+            user_reports = database.get_reports(user_id)
+            if len(user_reports) == 1:
+                report_id = user_reports[0]['id']
+                return self._explain_report(report_id, message, message, user_id)
+            if len(user_reports) > 1:
+                report_options = [f"{r['id']}: {r['original_filename']}" for r in user_reports]
+                options_text = '\n'.join(report_options)
+                bot_response = (
+                    "Birden fazla belge bulundu. Lütfen açıklamak istediğiniz belgeyi seçin (ID ile):\n"
+                    f"{options_text}\n"
+                    "Örnek: belgeyi açıkla 12"
+                )
+                database.add_chat_history(user_id, "belge_aciklama_secim", message, bot_response)
                 return bot_response
         return None
 
@@ -331,6 +444,36 @@ Kullanıcı mesajı: {message}
         bot_response = self.ollama_chat(message, model=self.user_models.get(user_id))
         database.add_chat_history(user_id, "llm_cevap", message, bot_response)
         return bot_response
+
+    def process_message_stream(self, message: str, user_id: str) -> Iterator[str]:
+        state_response = self._handle_support_ticket_interaction(message, user_id)
+        if state_response:
+            yield state_response
+            return
+
+        quick_response = self._handle_quick_queries(message, user_id)
+        if quick_response:
+            yield quick_response
+            return
+
+        tool_response = self._decide_and_execute_tool(message, user_id)
+        if tool_response:
+            yield tool_response
+            return
+
+        date_response = self._handle_date_queries(message, user_id)
+        if date_response:
+            yield date_response
+            return
+
+        chunks = []
+        for chunk in self.ollama_chat_stream(message, model=self.user_models.get(user_id)):
+            chunks.append(chunk)
+            yield chunk
+
+        full_response = "".join(chunks).strip()
+        if full_response:
+            database.add_chat_history(user_id, "llm_cevap", message, full_response)
 
     def _extract_json(self, text: str):
         """Metin içinden JSON (dict veya list) güvenli şekilde çıkarmaya çalışır.
@@ -488,7 +631,7 @@ Kullanıcı mesajı: {message}
                 return f"Birden fazla belge bulundu. Lütfen açıklamak istediğiniz belgeyi seçin (ID ile):\n{options_text}\nÖrnek: belgeyi açıkla 12"
 
         # Kullanıcı belge seçip tekrar sorduğunda (ör: belgeyi açıkla 12)
-        if tool == 'belge_sec_ve_acikla':
+        if tool in {'belge_sec_ve_acikla', 'choose_file_and_explain'}:
             report_id = data.get('report_id')
             query = data.get('sorgu', '')
             if not report_id or not query:

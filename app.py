@@ -1,21 +1,21 @@
-from flask import Flask, render_template, request, jsonify, send_from_directory, session
+from flask import Flask, Response, render_template, request, jsonify, send_from_directory, session, stream_with_context
 import requests
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 import logging
 from logging.handlers import RotatingFileHandler
 import time
 from chatbot import CitizenAssistantBot
-from chatbot import LM_STUDIO_BASE_URL, LM_STUDIO_API_KEY
-import json
+from chatbot import LLM_PROVIDER, LM_STUDIO_BASE_URL, LM_STUDIO_API_KEY, LM_STUDIO_MODEL, OLLAMA_BASE_URL, OLLAMA_MODEL
 import os
 import uuid
 from werkzeug.utils import secure_filename
 import datetime
+import shutil
 import database # Import the database module
 from document_processor import processor as doc_processor # Import the document processor
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24) # Needed for session management
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-me')
 # Güvenlik ve yükleme sınırları
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
@@ -72,7 +72,65 @@ file_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s in %(mo
 app.logger.addHandler(file_handler)
 app.logger.setLevel(logging.INFO)
 
-AVAILABLE_MODELS = [m.strip() for m in os.getenv('LM_STUDIO_MODELS', 'qwen/qwen3-4b-2507').split(',') if m.strip()]
+LM_STUDIO_MODELS = [m.strip() for m in os.getenv('LM_STUDIO_MODELS', f'{LM_STUDIO_MODEL}').split(',') if m.strip()]
+OLLAMA_MODELS = [m.strip() for m in os.getenv('OLLAMA_MODELS', f'{OLLAMA_MODEL}').split(',') if m.strip()]
+
+
+def register_error_handlers(flask_app):
+    @flask_app.errorhandler(RequestEntityTooLarge)
+    def handle_large_file(e):
+        return jsonify({'success': False, 'message': 'Dosya boyutu sınırı aşıldı (20MB).'}), 413
+
+    @flask_app.errorhandler(Exception)
+    def handle_unexpected_error(e):
+        if isinstance(e, HTTPException):
+            return e
+        flask_app.logger.exception('Beklenmeyen sunucu hatası')
+        return jsonify({'success': False, 'message': 'Sunucu hatası. Lütfen daha sonra tekrar deneyin.'}), 500
+
+
+def initialize_runtime(reset_state=False):
+    global bot
+
+    database.init_db()
+
+    if reset_state:
+        try:
+            database.reset_non_user_data()
+            uploads_dir = os.path.join(os.getcwd(), 'uploads', 'reports')
+            vs_dir = os.path.join(os.getcwd(), 'vector_store')
+            if os.path.exists(uploads_dir):
+                shutil.rmtree(uploads_dir, ignore_errors=True)
+            if os.path.exists(vs_dir):
+                for fname in os.listdir(vs_dir):
+                    try:
+                        os.remove(os.path.join(vs_dir, fname))
+                    except OSError:
+                        pass
+            os.makedirs(uploads_dir, exist_ok=True)
+        except Exception as e:
+            app.logger.info(f"Startup reset failed: {e}")
+
+    try:
+        database.seed_default_knowledge()
+    except Exception as e:
+        app.logger.info(f"Seed knowledge failed: {e}")
+    database.seed_default_users()
+    bot = CitizenAssistantBot()
+
+
+register_error_handlers(app)
+
+
+def ensure_bot():
+    if bot is None:
+        initialize_runtime(reset_state=False)
+
+
+def get_provider_models():
+    if LLM_PROVIDER == 'ollama':
+        return OLLAMA_MODELS
+    return LM_STUDIO_MODELS
 
 def get_lm_studio_models():
     """LM Studio'nun /v1/models uç noktasından model listesini çeker.
@@ -94,12 +152,32 @@ def get_lm_studio_models():
                 ids.append(it['id'])
         # Bazı LM Studio sürümleri farklı alanlarla dönebilir; güvenli birleşim
         # Sadece izin verilen model listesi
-        allowed = ['qwen/qwen3-4b-2507']
+        allowed = LM_STUDIO_MODELS
         return [m for m in ids if m in allowed] or allowed
     except Exception as e:
         # Sessiz fallback, loglayalım
         try:
             app.logger.info(f"LM Studio modelleri alınamadı: {e}")
+        except Exception:
+            pass
+        return []
+
+
+def get_ollama_models():
+    try:
+        resp = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get('models') or []
+        ids = []
+        for it in items:
+            if isinstance(it, dict) and it.get('name'):
+                ids.append(it['name'])
+        allowed = OLLAMA_MODELS
+        return [m for m in ids if m in allowed] or allowed
+    except Exception as e:
+        try:
+            app.logger.info(f"Ollama modelleri alÄ±namadÄ±: {e}")
         except Exception:
             pass
         return []
@@ -122,6 +200,7 @@ def welcome_message():
 
 @app.route('/chat', methods=['POST'])
 def chat():
+    ensure_bot()
     if 'user_id' not in session:
         session['user_id'] = str(uuid.uuid4())
     user_id = session['user_id']
@@ -131,6 +210,25 @@ def chat():
         return jsonify({'response': 'Lütfen bir mesaj girin.'})
     bot_response = bot.process_message(user_message, user_id)
     return jsonify({'response': bot_response})
+
+
+@app.route('/chat_stream', methods=['POST'])
+def chat_stream():
+    ensure_bot()
+    if 'user_id' not in session:
+        session['user_id'] = str(uuid.uuid4())
+    user_id = session['user_id']
+
+    user_message = request.json.get('message', '')
+    if not user_message.strip():
+        return jsonify({'response': 'Lütfen bir mesaj girin.'}), 400
+
+    @stream_with_context
+    def generate():
+        for chunk in bot.process_message_stream(user_message, user_id):
+            yield chunk
+
+    return Response(generate(), mimetype='text/plain; charset=utf-8')
 
 @app.route('/dashboard')
 def dashboard():
@@ -142,28 +240,31 @@ def tutorial():
 
 @app.route('/api/issues')
 def get_issues():
+    ensure_bot()
     return jsonify(bot.get_citizen_dashboard())
 
 @app.route('/api/models', methods=['GET'])
 def get_models():
+    ensure_bot()
     if 'user_id' not in session:
         session['user_id'] = str(uuid.uuid4())
     user_id = session['user_id']
     current = bot.user_models.get(user_id)
-    lm_models = get_lm_studio_models()
-    available = lm_models if lm_models else AVAILABLE_MODELS
-    return jsonify({'available': available, 'current': current})
+    provider_models = get_ollama_models() if LLM_PROVIDER == 'ollama' else get_lm_studio_models()
+    available = provider_models if provider_models else get_provider_models()
+    return jsonify({'available': available, 'current': current, 'provider': LLM_PROVIDER})
 
 @app.route('/api/model', methods=['POST'])
 def set_model():
+    ensure_bot()
     if 'user_id' not in session:
         session['user_id'] = str(uuid.uuid4())
     user_id = session['user_id']
     data = request.get_json(silent=True) or {}
     model = data.get('model')
     # Dinamik listeyi öncelikle LM Studio'dan çekip doğrulayalım
-    lm_models = get_lm_studio_models()
-    allow_list = lm_models if lm_models else AVAILABLE_MODELS
+    provider_models = get_ollama_models() if LLM_PROVIDER == 'ollama' else get_lm_studio_models()
+    allow_list = provider_models if provider_models else get_provider_models()
     if model and (not allow_list or model in allow_list):
         bot.set_user_model(user_id, model)
         return jsonify({'success': True, 'model': model})
@@ -173,6 +274,7 @@ def set_model():
 
 @app.route('/translate', methods=['POST'])
 def translate():
+    ensure_bot()
     message = request.json.get('message', '')
     target_lang = request.json.get('target_language', 'en')
     
@@ -181,6 +283,7 @@ def translate():
 
 @app.route('/api/history')
 def api_history():
+    ensure_bot()
     if 'user_id' not in session:
         session['user_id'] = str(uuid.uuid4()) # Or return error/empty if no session expected
     user_id = session.get('user_id')
@@ -190,6 +293,7 @@ def api_history():
 
 @app.route('/api/support_tickets')
 def api_support_tickets():
+    ensure_bot()
     if 'user_id' not in session:
         session['user_id'] = str(uuid.uuid4()) # Or return error/empty
     user_id = session.get('user_id')
@@ -199,6 +303,7 @@ def api_support_tickets():
 
 @app.route('/api/support_tickets/read/<int:idx>', methods=['POST'])
 def api_support_tickets_read(idx):
+    ensure_bot()
     if 'user_id' not in session:
         return jsonify({'success': False, 'message': 'User session not found'}), 401
     user_id = session['user_id']
@@ -323,7 +428,7 @@ if __name__ == '__main__':
     database.init_db()
     bot = CitizenAssistantBot() # Initialize bot after DB is ready
     # Optional: reset state on startup based on env var (reset first, then seed)
-    if os.environ.get('RESET_ON_STARTUP', '1') == '1':
+    if os.environ.get('RESET_ON_STARTUP', '0') == '1':
         try:
             # Clear DB tables except users
             database.reset_non_user_data()

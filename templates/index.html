@@ -131,6 +131,33 @@
             }
         }
 
+        function createStreamingBotMessage() {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message bot';
+            messageDiv.innerHTML = `
+                <div class="message-avatar">ğŸ¤–</div>
+                <div class="message-content"></div>
+            `;
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            return messageDiv.querySelector('.message-content');
+        }
+
+        function renderBotContent(targetEl, content) {
+            const normalized = normalizeForMarkdown(typeof content === 'string' ? content : '');
+            if (window.marked) {
+                if (window.marked.setOptions) {
+                    window.marked.setOptions({ gfm: true, breaks: true, smartLists: true });
+                }
+                targetEl.innerHTML = marked.parse(normalized);
+            } else {
+                targetEl.innerHTML = normalized.replace(/\n/g, '<br>');
+            }
+            const messagesContainer = document.getElementById('chatMessages');
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
         function renderReportOptions(rawText) {
             const lines = String(rawText || '').split('\n');
             const info = lines[0] || 'Birden fazla belge bulundu.';
@@ -231,7 +258,7 @@
                 const response = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: JSON.stringify({ tool: 'choose_file_and_explain', report_id: reportId, sorgu: userMsg }) })
+                    body: JSON.stringify({ message: JSON.stringify({ tool: 'belge_sec_ve_acikla', report_id: reportId, sorgu: userMsg }) })
                 });
                 const data = await response.json();
                 hideTypingIndicator();
@@ -276,21 +303,34 @@
             showTypingIndicator();
 
             try {
-                const response = await fetch('/chat', {
+                const response = await fetch('/chat_stream', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({ message: message })
                 });
-
-                const data = await response.json();
+                if (!response.ok || !response.body) {
+                    throw new Error('stream failed');
+                }
 
                 // Hide typing indicator
                 hideTypingIndicator();
 
-                // Add bot response
-                addMessage('bot', data.response);
+                const botContentEl = createStreamingBotMessage();
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let fullText = '';
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    fullText += decoder.decode(value, { stream: true });
+                    renderBotContent(botContentEl, fullText);
+                }
+
+                fullText += decoder.decode();
+                renderBotContent(botContentEl, fullText);
 
             } catch (error) {
                 hideTypingIndicator();

@@ -2,6 +2,7 @@ import pytest
 import os
 import sys
 import json # Added for test_support_ticket_flow_no_llm
+import importlib
 
 # Add project root for imports if conftest.py isn't handling it fully for all test runners
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -166,3 +167,53 @@ def test_support_ticket_flow_no_llm(mocker):
     assert bot.user_states[test_user_id].get('pending_ticket') is None
     assert 'waiting_for_description' not in bot.user_states[test_user_id]
     assert bot.user_states[test_user_id].get('last_department') is None
+
+
+def test_llm_studio_provider_request(mocker):
+    os.environ["LLM_PROVIDER"] = "lmstudio"
+    import chatbot as chatbot_module
+    chatbot_module = importlib.reload(chatbot_module)
+    bot = chatbot_module.CitizenAssistantBot()
+
+    mock_response = mocker.Mock()
+    mock_response.json.return_value = {"choices": [{"message": {"content": "merhaba"}}]}
+    mock_response.raise_for_status.return_value = None
+    post_mock = mocker.patch('requests.post', return_value=mock_response)
+
+    result = bot.ollama_chat("selam")
+
+    assert result == "merhaba"
+    assert post_mock.call_args.kwargs["json"]["model"] == chatbot_module.LM_STUDIO_MODEL
+    assert "/chat/completions" in post_mock.call_args.args[0]
+
+
+def test_ollama_provider_request(mocker):
+    os.environ["LLM_PROVIDER"] = "ollama"
+    import chatbot as chatbot_module
+    chatbot_module = importlib.reload(chatbot_module)
+    bot = chatbot_module.CitizenAssistantBot()
+
+    mock_response = mocker.Mock()
+    mock_response.json.return_value = {"response": "ollama yanit"}
+    mock_response.raise_for_status.return_value = None
+    post_mock = mocker.patch('requests.post', return_value=mock_response)
+
+    result = bot.ollama_chat("selam")
+
+    assert result == "ollama yanit"
+    assert post_mock.call_args.kwargs["json"]["model"] == chatbot_module.OLLAMA_MODEL
+    assert post_mock.call_args.args[0].endswith("/api/generate")
+
+
+def test_explicit_document_tool_request_bypasses_general_llm(mocker):
+    bot = CitizenAssistantBot()
+    mocker.patch('database.get_reports', return_value=[{'id': 7, 'original_filename': 'proje_ozeti.docx'}])
+    explain_mock = mocker.patch.object(bot, '_explain_report', return_value="Belge aciklamasi")
+
+    response = bot.process_message(
+        json.dumps({"tool": "choose_file_and_explain", "report_id": 7, "sorgu": "içeriği açıkla bana"}),
+        "test_user_doc",
+    )
+
+    assert response == "Belge aciklamasi"
+    explain_mock.assert_called_once()

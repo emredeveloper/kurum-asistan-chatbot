@@ -1,249 +1,201 @@
+import json
+import math
 import os
 import re
 from pathlib import Path
-import numpy as np
-import pypdf
-import docx
-import json
-import database
-import fitz  # PyMuPDF
 
-# Use a common, high-performance model suitable for multilingual or Turkish content if possible
-# For this example, 'all-MiniLM-L6-v2' is a good starting point.
-MODEL_NAME = 'all-MiniLM-L6-v2'
-VECTOR_STORE_PATH = os.path.join(os.getcwd(), 'vector_store')
-INDEX_FILE = os.path.join(VECTOR_STORE_PATH, 'faiss_index.bin')
-METADATA_FILE = os.path.join(VECTOR_STORE_PATH, 'metadata.json')
+import docx
+import fitz
+import pypdf
+import requests
+
+import database
+
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "qwen3-embedding:0.6b")
+VECTOR_STORE_PATH = os.path.join(os.getcwd(), "vector_store")
+METADATA_FILE = os.path.join(VECTOR_STORE_PATH, "metadata.json")
 
 if not os.path.exists(VECTOR_STORE_PATH):
     os.makedirs(VECTOR_STORE_PATH)
 
+
 class DocumentProcessor:
     def __init__(self):
-        # Model'i lazy yükleyelim (ilk ihtiyaç anında)
-        self.model_name = MODEL_NAME
-        self.model = None
-        self.faiss = None
-        self.index = None
-        self.metadata = []
+        self.metadata = {}
         self._load()
 
     def _load(self):
-        if os.path.exists(INDEX_FILE) and os.path.exists(METADATA_FILE):
-            try:
-                self._ensure_faiss()
-                if self.faiss is not None:
-                    self.index = self.faiss.read_index(INDEX_FILE)
-                with open(METADATA_FILE, 'r', encoding='utf-8') as f:
-                    # Metadata'yı yüklerken anahtarları integer'a çevir (JSON string olarak kaydeder)
-                    self.metadata = {int(k): v for k, v in json.load(f).items()}
-            except Exception as e:
-                print(f"Could not load existing index or metadata: {e}")
-                self.index = None
-                self.metadata = {}
-        else:
+        if not os.path.exists(METADATA_FILE):
+            self.metadata = {}
+            return
+        try:
+            with open(METADATA_FILE, "r", encoding="utf-8") as f:
+                self.metadata = {int(k): v for k, v in json.load(f).items()}
+        except Exception as e:
+            print(f"Could not load metadata: {e}")
             self.metadata = {}
 
-
     def _save(self):
-        # FAISS yoksa veya index yoksa sadece metadata'yı kaydet
-        self._ensure_faiss()
-        if self.faiss is not None and self.index is not None:
-            self.faiss.write_index(self.index, INDEX_FILE)
-        with open(METADATA_FILE, 'w', encoding='utf-8') as f:
-            json.dump(self.metadata, f, ensure_ascii=False, indent=4)
+        with open(METADATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(self.metadata, f, ensure_ascii=False, indent=2)
 
     def _extract_text_from_pdf(self, file_path):
         text = ""
         with open(file_path, "rb") as f:
             reader = pypdf.PdfReader(f)
-            for page_num, page in enumerate(reader.pages):
-                page_text = page.extract_text() or ""
-                if not page_text.strip():
-                    print(f"[RAG-WARN] PDF sayfa {page_num+1} boş veya metin çıkarılamadı.")
-                text += page_text
-        if not text.strip():
-            print(f"[RAG-ERROR] PDF'den hiç metin çıkarılamadı: {file_path}")
-            print(f"[RAG-INFO] PyMuPDF ile tekrar deneniyor...")
-            try:
-                doc = fitz.open(file_path)
-                pymupdf_text = ""
-                for page_num, page in enumerate(doc):
-                    page_text = page.get_text()
-                    if not page_text.strip():
-                        print(f"[RAG-WARN] PyMuPDF ile de sayfa {page_num+1} boş veya metin çıkarılamadı.")
-                    pymupdf_text += page_text
-                text = pymupdf_text
-                if text.strip():
-                    print(f"[RAG-INFO] PyMuPDF ile metin çıkarıldı, uzunluk: {len(text)} karakter")
-                else:
-                    print(f"[RAG-ERROR] PyMuPDF ile de metin çıkarılamadı: {file_path}")
-            except Exception as e:
-                print(f"[RAG-ERROR] PyMuPDF ile metin çıkarılırken hata: {e}")
-        return text
+            for page in reader.pages:
+                text += page.extract_text() or ""
+        if text.strip():
+            return text
+
+        try:
+            doc = fitz.open(file_path)
+            return "".join(page.get_text() for page in doc)
+        except Exception as e:
+            print(f"PDF fallback extraction failed: {e}")
+            return ""
 
     def _extract_text_from_docx(self, file_path):
         doc = docx.Document(file_path)
-        text = "\n".join([para.text for para in doc.paragraphs])
-        return text
+        return "\n".join(para.text for para in doc.paragraphs)
 
     def _split_text(self, text):
-        # A more robust splitting strategy
-        text = re.sub(r'\s+', ' ', text).strip() # Normalize whitespace
-        # Split by paragraphs, but also handle long lines.
-        chunks = re.split(r'\n\n+', text) # Split by double newlines (paragraphs)
-        final_chunks = []
-        for chunk in chunks:
-            # Further split chunks that are too long (e.g., > 512 tokens, rough estimate)
-            if len(chunk) > 1000: # Character limit heuristic
-                sentences = re.split(r'(?<=[.!?])\s+', chunk)
-                current_sub_chunk = ""
-                for sentence in sentences:
-                    if len(current_sub_chunk) + len(sentence) < 1000:
-                        current_sub_chunk += sentence + " "
-                    else:
-                        final_chunks.append(current_sub_chunk.strip())
-                        current_sub_chunk = sentence + " "
-                if current_sub_chunk:
-                    final_chunks.append(current_sub_chunk.strip())
-            elif chunk.strip():
-                final_chunks.append(chunk.strip())
-        return final_chunks
+        text = re.sub(r"\s+", " ", text).strip()
+        if not text:
+            return []
 
-    def _ensure_model(self):
-        if self.model is None:
-            try:
-                from sentence_transformers import SentenceTransformer
-                self.model = SentenceTransformer(self.model_name)
-            except Exception as e:
-                raise RuntimeError(f"Embedding modeli yüklenemedi: {e}")
+        chunks = []
+        cursor = 0
+        chunk_size = 900
+        overlap = 120
+        while cursor < len(text):
+            end = min(len(text), cursor + chunk_size)
+            piece = text[cursor:end].strip()
+            if piece:
+                chunks.append(piece)
+            if end >= len(text):
+                break
+            cursor = max(end - overlap, cursor + 1)
+        return chunks
 
-    def _ensure_faiss(self):
-        if self.faiss is None:
-            try:
-                import faiss
-                self.faiss = faiss
-            except Exception:
-                self.faiss = None
+    def _embed_many(self, texts):
+        if not texts:
+            return []
+
+        try:
+            response = requests.post(
+                f"{OLLAMA_BASE_URL}/api/embed",
+                json={"model": OLLAMA_EMBED_MODEL, "input": texts},
+                timeout=120,
+            )
+            response.raise_for_status()
+            data = response.json()
+            embeddings = data.get("embeddings") or []
+            if embeddings:
+                return embeddings
+        except Exception:
+            pass
+
+        embeddings = []
+        for text in texts:
+            response = requests.post(
+                f"{OLLAMA_BASE_URL}/api/embeddings",
+                json={"model": OLLAMA_EMBED_MODEL, "prompt": text},
+                timeout=120,
+            )
+            response.raise_for_status()
+            data = response.json()
+            vector = data.get("embedding")
+            if not vector:
+                raise RuntimeError("Embedding response is empty.")
+            embeddings.append(vector)
+        return embeddings
+
+    def _cosine_similarity(self, left, right):
+        left_norm = math.sqrt(sum(x * x for x in left))
+        right_norm = math.sqrt(sum(x * x for x in right))
+        if left_norm == 0 or right_norm == 0:
+            return -1.0
+        dot = sum(x * y for x, y in zip(left, right))
+        return dot / (left_norm * right_norm)
 
     def process_and_embed_document(self, file_path, report_id):
-        """
-        Processes a single document, extracts text, creates embeddings, and adds to FAISS.
-        `report_id` is the ID from the 'reports' table in the database.
-        """
         try:
-            # Daha az gürültü: sadece önemli aşamalarda bilgi ver
-            print(f"[RAG] İşleme: {file_path} (report_id={report_id})")
             file_path = Path(file_path)
             if not file_path.exists():
-                print(f"[RAG-ERROR] Dosya bulunamadı: {file_path}")
                 raise FileNotFoundError(f"File not found: {file_path}")
 
-            if file_path.suffix.lower() == '.pdf':
+            if file_path.suffix.lower() == ".pdf":
                 text = self._extract_text_from_pdf(file_path)
-                print(f"[RAG] PDF metin çıkarıldı (uzunluk={len(text)})")
-            elif file_path.suffix.lower() in ['.doc', '.docx']:
+            elif file_path.suffix.lower() in [".doc", ".docx"]:
                 text = self._extract_text_from_docx(file_path)
-                print(f"[RAG] DOCX metin çıkarıldı (uzunluk={len(text)})")
             else:
-                print(f"[RAG-ERROR] Desteklenmeyen dosya tipi: {file_path.suffix}")
-                return # Unsupported file type
-
-            chunks = self._split_text(text)
-            print(f"[RAG] {len(chunks)} parça üretildi")
-            if not chunks:
-                print(f"[RAG-ERROR] Metin parçalara ayrılamadı veya boş.")
                 return
 
-            self._ensure_model()
-            embeddings = self.model.encode(chunks, convert_to_tensor=False)
-            print(f"[RAG] Embeddingler hazır (adet={len(embeddings)})")
-            
-            # Check if index exists and its dimension matches
-            d = self.model.get_sentence_embedding_dimension()
-            if self.index is None:
-                self._ensure_faiss()
-                if self.faiss is None:
-                    print("[RAG-WARN] FAISS bulunamadı; indeksleme devre dışı.")
-                    return
-                # IndexIDMap, vektörlere özel ID'ler atamamızı sağlar.
-                base_index = self.faiss.IndexFlatL2(d)
-                self.index = self.faiss.IndexIDMap2(base_index)
-                self.metadata = {}
+            chunks = self._split_text(text)
+            if not chunks:
+                return
 
-            # Her bir chunk için benzersiz bir ID oluştur
-            # Basit bir sayaç veya daha sağlam bir UUID kullanılabilir.
-            # Şimdilik mevcut metadata boyutunu temel alan bir sayaç kullanalım.
+            embeddings = self._embed_many(chunks)
             start_id = max(self.metadata.keys()) + 1 if self.metadata else 1
-            ids = np.arange(start_id, start_id + len(chunks))
 
-            self.index.add_with_ids(np.array(embeddings).astype('float32'), ids)
-            
-            for i, chunk in enumerate(chunks):
-                chunk_id = ids[i]
+            for index, chunk in enumerate(chunks):
+                chunk_id = start_id + index
                 self.metadata[chunk_id] = {
-                    'report_id': report_id,
-                    'text': chunk
+                    "report_id": report_id,
+                    "text": chunk,
+                    "embedding": embeddings[index],
                 }
-            
-            self._save()
-            # Mark the report as processed in the database
-            database.mark_report_as_processed(report_id)
 
+            self._save()
+            database.mark_report_as_processed(report_id)
         except Exception as e:
             print(f"Error processing document {file_path}: {e}")
 
     def search_in_documents(self, query: str, top_k=5):
-        """
-        Searches for a query across all processed documents.
-        """
-        if self.index is None or getattr(self.index, 'ntotal', 0) == 0:
+        if not self.metadata:
             return []
-        
-        self._ensure_model()
-        query_embedding = self.model.encode([query], convert_to_tensor=False)
-        try:
-            distances, ids = self.index.search(np.array(query_embedding).astype('float32'), top_k)
-        except Exception:
-            return []
-        
-        results = []
-        for i, chunk_id in enumerate(ids[0]):
-            if chunk_id in self.metadata:
-                meta = self.metadata[chunk_id]
-                results.append({
-                    'text': meta['text'],
-                    'report_id': meta['report_id'],
-                    'score': distances[0][i]
-                })
-        return results
+
+        if not (query or "").strip():
+            results = []
+            for chunk_id in sorted(self.metadata.keys())[:top_k]:
+                meta = self.metadata.get(chunk_id, {})
+                results.append(
+                    {
+                        "text": meta.get("text", ""),
+                        "report_id": meta.get("report_id"),
+                        "score": None,
+                    }
+                )
+            return results
+
+        query_vector = self._embed_many([query])[0]
+        scored = []
+        for meta in self.metadata.values():
+            embedding = meta.get("embedding")
+            if not embedding:
+                continue
+            scored.append(
+                {
+                    "text": meta["text"],
+                    "report_id": meta["report_id"],
+                    "score": self._cosine_similarity(query_vector, embedding),
+                }
+            )
+
+        scored.sort(key=lambda item: item["score"], reverse=True)
+        return scored[:top_k]
 
     def delete_document(self, report_id_to_delete):
-        """
-        Deletes all chunks associated with a report_id from the index and metadata
-        using the efficient ID-based removal of IndexIDMap.
-        """
-        if self.index is None or self.index.ntotal == 0:
-            return
-
-        # Find all chunk IDs that belong to the report to be deleted
         ids_to_remove = [
-            chunk_id for chunk_id, meta in self.metadata.items()
-            if meta.get('report_id') == report_id_to_delete
+            chunk_id
+            for chunk_id, meta in self.metadata.items()
+            if meta.get("report_id") == report_id_to_delete
         ]
-
-        if not ids_to_remove:
-            return
-
-        # Use the efficient remove_ids method from IndexIDMap
-        self.index.remove_ids(np.array(ids_to_remove))
-
-        # Remove the corresponding metadata entries
         for chunk_id in ids_to_remove:
             self.metadata.pop(chunk_id, None)
-
         self._save()
-        print(f"Removed {len(ids_to_remove)} chunks for report {report_id_to_delete} from FAISS index.")
 
-# Singleton instance
+
 processor = DocumentProcessor()

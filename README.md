@@ -1,76 +1,75 @@
-# Internal Smart Assistant Chatbot
+# Kurum Asistan Chatbot
 
-A modern and functional LLM-based (local LM Studio/OpenAI compatible API) chatbot that simplifies internal processes. Weather updates, internal knowledge, support tickets, document uploads, and more — all in one screen!
+Flask tabanli bu proje, kurum ici bilgi tabani, destek talebi, hava durumu ve belge sorgulama senaryolarini tek ekranda toplayan bir asistandir. Uygulama LM Studio uyumlu bir OpenAI API sunucusu ile calisir ve yuklenen PDF/DOCX dosyalarini basit bir RAG akisiyla sorgulayabilir.
 
-## Features
+## Ozellikler
 
-* 🤖 **LLM-powered natural language chat** (local model via LM Studio/OpenAI compatible API)
-* 🔗 **Multi-tool/function chaining**: weather, internal knowledge, support tickets, document upload
-* 🏢 **Internal knowledge base**: FAQs, procedures, policies
-* 🌤️ **Weather query** (OpenWeatherMap API)
-* 💼 **Support ticket creation** (department, description, urgency, category)
-* 🗂️ **Dashboard**: query history, weather history, support tickets, uploaded reports
-* 📄 **Word/PDF report upload**: attach and manage files from both the chat screen and dashboard
-* 🌗 **Dark/Light theme** (persistent with localStorage)
-* 📱 **Modern, responsive, and mobile-friendly UI**
-* 🛡️ **Secure API key management with .env**
+- Kurum ici bilgi tabanindan soru cevaplama
+- Destek talebi olusturma ve dashboard uzerinden izleme
+- Hava durumu sorgulama
+- PDF ve DOCX yukleme, ozetleme ve belge ici arama
+- Dashboard uzerinden gecmis, rapor ve talep goruntuleme
+- Kullanici bazli model secimi
 
-## Installation
+## Kurulum
 
-1. Clone the repository and navigate into the directory.
-2. Create and activate a virtual environment:
+1. Sanal ortam olusturun.
 
-   ```bash
-   python -m venv .venv
-   # Windows: .venv\Scripts\activate
-   # Linux/Mac: source .venv/bin/activate
-   ```
-3. Install requirements:
+```bash
+python -m venv .venv
+```
 
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Add your OpenWeatherMap API key to the `.env` file:
+2. Ortami aktif edin.
 
-   ```
-   OPENWEATHER_API_KEY=YOUR_API_KEY
-   ```
-5. Use LM Studio or Ollama (both can serve as an OpenAI-compatible server):
+```bash
+# Windows
+.venv\Scripts\activate
 
-   * **LM Studio**:
+# macOS / Linux
+source .venv/bin/activate
+```
 
-     * Start a model and enable the OpenAI Compatible Server (e.g. `http://localhost:1234/v1`).
-   * **Ollama (optional)**:
+3. Bagimliliklari kurun.
 
-     * Run a model such as `ollama run qwen3:8b` and use an OpenAI-compatible proxy.
-   * Example `.env`:
+```bash
+pip install -r requirements.txt
+```
 
-     ```
-     LM_STUDIO_BASE_URL=http://localhost:1234/v1
-     LM_STUDIO_MODEL=openai/gpt-oss-20b
-     # LM_STUDIO_API_KEY=optional
-     OPENWEATHER_API_KEY=YOUR_API_KEY
-     ```
-6. Start the application:
+4. Proje kokunde bir `.env` dosyasi olusturun.
 
-   ```bash
-   python app.py
-   ```
-7. Open `http://localhost:5000` in your browser.
+```env
+FLASK_SECRET_KEY=change-me
+LLM_PROVIDER=lmstudio
+LM_STUDIO_BASE_URL=http://localhost:1234/v1
+LM_STUDIO_MODEL=google/gemma-3-12b
+LM_STUDIO_API_KEY=
+LM_STUDIO_MODELS=google/gemma-3-12b
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen3.5:9b
+OLLAMA_MODELS=qwen3.5:9b
+OLLAMA_EMBED_MODEL=qwen3-embedding:0.6b
+OPENWEATHER_API_KEY=your_openweather_key
+RESET_ON_STARTUP=0
+```
 
-## Usage
+5. Uygulamayi baslatin.
 
-* **Chat screen:** Type and send your message — ask about weather, internal knowledge, support, or document uploads naturally.
-* **Report upload:** Add Word/PDF files from the chat screen or dashboard, manage and download them on the dashboard.
-* **Dashboard:** View query history, weather history, support tickets, and uploaded reports.
-* **Theme:** Switch between dark and light mode with the button in the top-right corner.
+```bash
+python app.py
+```
 
-## Notes
+Tarayicida `http://localhost:5000` adresini acin.
 
-* All data is temporarily stored in memory; user identity support can be added.
-* Departments, knowledge base, and tool chains can be easily customized.
-* Supports advanced multi-tool/function chaining with LLM integration.
+## Notlar
 
+- `RESET_ON_STARTUP=1` yapilirsa sohbet gecmisi, destek talepleri, yuklenen raporlar ve vektor deposu uygulama acilisinda temizlenir.
+- Varsayilan davranis olarak veri silme kapali tutulur.
+- `LLM_PROVIDER=lmstudio` ya da `LLM_PROVIDER=ollama` ile aktif saglayiciyi secersin.
+- Belge embedding akisi Ollama uzerinden `OLLAMA_EMBED_MODEL` kullanir.
+- Testler `TEST_DATABASE_URL` ortam degiskeni ile ayri bir SQLite veritabani kullanir.
 
-Developer: emredeveloper
+## Test
 
+```bash
+pytest -q
+```
