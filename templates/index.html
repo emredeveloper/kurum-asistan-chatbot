@@ -125,7 +125,7 @@
             messagesContainer.appendChild(messageDiv);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
-            // Belge seçimi butonlarına event ekle
+            // Attach events to document selection buttons
             if (sender === 'bot' && content && content.includes('Found too many file. Choose the file that you want to use.')) {
                 bindReportOptionButtons();
             }
@@ -160,8 +160,8 @@
 
         function renderReportOptions(rawText) {
             const lines = String(rawText || '').split('\n');
-            const info = lines[0] || 'Birden fazla belge bulundu.';
-            const example = lines.find(l => l.includes('Örnek:')) || '';
+            const info = lines[0] || 'Multiple documents were found.';
+            const example = lines.find(l => l.includes('Example:')) || '';
             const blockId = 'report-choice-' + Date.now() + '-' + Math.random().toString(36).slice(2,8);
             let options = [];
             lines.forEach(line => {
@@ -283,7 +283,7 @@
             const message = input.value.trim();
             if (!message) return;
 
-            // İlk mesajda info kutusunu gizle
+            // Hide the info box after the first message
             if (!conversationStarted) {
                 const infoBox = document.getElementById('infoBox');
                 if (infoBox) {
@@ -466,13 +466,13 @@
             const uploaderInput = document.getElementById('chatUploaderName');
             const msg = document.getElementById('chatReportMsg');
             if (!fileInput.files.length) {
-                msg.textContent = 'Lütfen bir dosya seçin.';
+                msg.textContent = 'Please choose a file.';
                 return;
             }
             const formData = new FormData();
             formData.append('file', fileInput.files[0]);
             formData.append('uploader', uploaderInput.value);
-            msg.textContent = 'Yükleniyor...';
+            msg.textContent = 'Uploading...';
             try {
                 const resp = await fetch('/upload_report', {
                     method: 'POST',

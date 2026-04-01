@@ -1,25 +1,25 @@
-# Kurum Asistan Chatbot
+# Company Assistant Chatbot
 
-Flask tabanli bu proje, kurum ici bilgi tabani, destek talebi, hava durumu ve belge sorgulama senaryolarini tek ekranda toplayan bir asistandir. Uygulama LM Studio uyumlu bir OpenAI API sunucusu ile calisir ve yuklenen PDF/DOCX dosyalarini basit bir RAG akisiyla sorgulayabilir.
+This Flask project brings together internal knowledge base lookups, support ticket creation, weather queries, and document question-answering in a single interface. The app works with an OpenAI-compatible API such as LM Studio and can also use Ollama for both chat and document embeddings.
 
-## Ozellikler
+## Features
 
-- Kurum ici bilgi tabanindan soru cevaplama
-- Destek talebi olusturma ve dashboard uzerinden izleme
-- Hava durumu sorgulama
-- PDF ve DOCX yukleme, ozetleme ve belge ici arama
-- Dashboard uzerinden gecmis, rapor ve talep goruntuleme
-- Kullanici bazli model secimi
+- Answer questions from the internal knowledge base
+- Create support tickets and track them on the dashboard
+- Fetch weather information
+- Upload, summarize, and search PDF and DOCX files
+- Review chat history, reports, and tickets from the dashboard
+- Choose the active model per user session
 
-## Kurulum
+## Setup
 
-1. Sanal ortam olusturun.
+1. Create a virtual environment.
 
 ```bash
 python -m venv .venv
 ```
 
-2. Ortami aktif edin.
+2. Activate it.
 
 ```bash
 # Windows
@@ -29,13 +29,13 @@ python -m venv .venv
 source .venv/bin/activate
 ```
 
-3. Bagimliliklari kurun.
+3. Install dependencies.
 
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Proje kokunde bir `.env` dosyasi olusturun.
+4. Create a `.env` file in the project root.
 
 ```env
 FLASK_SECRET_KEY=change-me
@@ -52,21 +52,21 @@ OPENWEATHER_API_KEY=your_openweather_key
 RESET_ON_STARTUP=0
 ```
 
-5. Uygulamayi baslatin.
+5. Start the app.
 
 ```bash
 python app.py
 ```
 
-Tarayicida `http://localhost:5000` adresini acin.
+Open `http://localhost:5000` in your browser.
 
-## Notlar
+## Notes
 
-- `RESET_ON_STARTUP=1` yapilirsa sohbet gecmisi, destek talepleri, yuklenen raporlar ve vektor deposu uygulama acilisinda temizlenir.
-- Varsayilan davranis olarak veri silme kapali tutulur.
-- `LLM_PROVIDER=lmstudio` ya da `LLM_PROVIDER=ollama` ile aktif saglayiciyi secersin.
-- Belge embedding akisi Ollama uzerinden `OLLAMA_EMBED_MODEL` kullanir.
-- Testler `TEST_DATABASE_URL` ortam degiskeni ile ayri bir SQLite veritabani kullanir.
+- If `RESET_ON_STARTUP=1`, chat history, support tickets, uploaded reports, and the vector store are cleared on startup.
+- By default, startup data deletion is disabled.
+- Set `LLM_PROVIDER=lmstudio` or `LLM_PROVIDER=ollama` to choose the active provider.
+- The document embedding flow uses Ollama through `OLLAMA_EMBED_MODEL`.
+- Tests use a separate SQLite database via the `TEST_DATABASE_URL` environment variable.
 
 ## Test
 

@@ -59,7 +59,7 @@ def apply_rate_limiting():
         # Eski kayıtları temizle
         timestamps = [t for t in timestamps if t >= window_start]
         if len(timestamps) >= RATE_LIMIT_MAX_REQUESTS:
-            return jsonify({'success': False, 'message': 'Çok fazla istek. Lütfen biraz sonra tekrar deneyin.'}), 429
+            return jsonify({'success': False, 'message': 'Too many requests. Please try again shortly.'}), 429
         timestamps.append(now)
         _rate_limit_store[key] = timestamps
 
@@ -79,14 +79,14 @@ OLLAMA_MODELS = [m.strip() for m in os.getenv('OLLAMA_MODELS', f'{OLLAMA_MODEL}'
 def register_error_handlers(flask_app):
     @flask_app.errorhandler(RequestEntityTooLarge)
     def handle_large_file(e):
-        return jsonify({'success': False, 'message': 'Dosya boyutu sınırı aşıldı (20MB).'}), 413
+        return jsonify({'success': False, 'message': 'File size limit exceeded (20MB).'}), 413
 
     @flask_app.errorhandler(Exception)
     def handle_unexpected_error(e):
         if isinstance(e, HTTPException):
             return e
-        flask_app.logger.exception('Beklenmeyen sunucu hatası')
-        return jsonify({'success': False, 'message': 'Sunucu hatası. Lütfen daha sonra tekrar deneyin.'}), 500
+        flask_app.logger.exception('Unexpected server error')
+        return jsonify({'success': False, 'message': 'Server error. Please try again later.'}), 500
 
 
 def initialize_runtime(reset_state=False):
@@ -196,7 +196,7 @@ def index():
 def welcome_message():
     if 'messages' not in session:
         session['messages'] = []
-    return jsonify({'response': 'Merhaba! Ben Kurum Asistanı. Size aşağıdaki konularda yardımcı olabilirim:<br>- 🌤️ Güncel hava durumu bilgisi alabilirim.<br>- 💼 Destek talebi oluşturabilirim.<br>- 🏢 Kurum içi bilgi tabanımızdan sorularınızı yanıtlayabilirim.<br>- 📄 Belgelerinizi (Word/PDF) yükleyip, içerikleri hakkında sorular sorabilirsiniz.'})
+    return jsonify({'response': 'Hello! I am the Company Assistant. I can help you with the following:<br>- Current weather information<br>- Support ticket creation<br>- Questions about our internal knowledge base<br>- Upload Word/PDF documents and answer questions about their contents'})
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -207,7 +207,7 @@ def chat():
 
     user_message = request.json.get('message', '')
     if not user_message.strip():
-        return jsonify({'response': 'Lütfen bir mesaj girin.'})
+        return jsonify({'response': 'Please enter a message.'})
     bot_response = bot.process_message(user_message, user_id)
     return jsonify({'response': bot_response})
 
@@ -221,7 +221,7 @@ def chat_stream():
 
     user_message = request.json.get('message', '')
     if not user_message.strip():
-        return jsonify({'response': 'Lütfen bir mesaj girin.'}), 400
+        return jsonify({'response': 'Please enter a message.'}), 400
 
     @stream_with_context
     def generate():
@@ -327,15 +327,15 @@ def upload_report():
     user_id = session['user_id']
 
     if 'file' not in request.files:
-        return jsonify({'success': False, 'message': 'Dosya bulunamadı.'}), 400
+        return jsonify({'success': False, 'message': 'File not found.'}), 400
     file = request.files['file']
     if file.filename == '':
-        return jsonify({'success': False, 'message': 'Dosya seçilmedi.'}), 400
+        return jsonify({'success': False, 'message': 'No file selected.'}), 400
 
     # MIME türü kontrolü
     if file and allowed_file(file.filename):
         if file.mimetype not in ALLOWED_MIME_TYPES:
-            return jsonify({'success': False, 'message': 'Geçersiz dosya türü.'}), 400
+            return jsonify({'success': False, 'message': 'Invalid file type.'}), 400
         original_filename = secure_filename(file.filename)
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         stored_filename_with_time = f"{timestamp}_{original_filename}"
@@ -343,7 +343,7 @@ def upload_report():
         try:
             file_path = os.path.join(app.config['UPLOAD_FOLDER'], stored_filename_with_time)
             file.save(file_path)
-            uploader_name = request.form.get('uploader', 'Bilinmiyor') # Name of person uploading
+            uploader_name = request.form.get('uploader', 'Unknown') # Name of person uploading
 
             report_id = database.add_report(user_id, original_filename, stored_filename_with_time, uploader_name)
 
@@ -351,12 +351,12 @@ def upload_report():
             # offloaded to a background worker (e.g., Celery, RQ).
             doc_processor.process_and_embed_document(file_path, report_id)
 
-            return jsonify({'success': True, 'message': 'Rapor başarıyla yüklendi ve işlendi.'})
+            return jsonify({'success': True, 'message': 'Report uploaded and processed successfully.'})
         except Exception as e:
             # Log the exception e
-            return jsonify({'success': False, 'message': f'Rapor yüklenirken bir hata oluştu: {str(e)}'}), 500
+            return jsonify({'success': False, 'message': f'An error occurred while uploading the report: {str(e)}'}), 500
     else:
-        return jsonify({'success': False, 'message': 'Sadece PDF veya Word dosyası yükleyebilirsiniz.'}), 400
+        return jsonify({'success': False, 'message': 'Only PDF or Word files can be uploaded.'}), 400
 
 @app.route('/reports', methods=['GET'])
 def get_reports():
@@ -372,13 +372,13 @@ def download_report(filename):
 @app.route('/delete_report/<int:report_id>', methods=['DELETE'])
 def delete_report_route(report_id):
     if 'user_id' not in session:
-        return jsonify({'success': False, 'message': 'Yetkisiz erişim.'}), 401
+        return jsonify({'success': False, 'message': 'Unauthorized access.'}), 401
 
     try:
         # Get the filename before deleting the DB record to ensure we can delete the file
         report_details = database.get_report_by_id(report_id)
         if not report_details:
-             return jsonify({'success': False, 'message': 'Rapor bulunamadı.'}), 404
+             return jsonify({'success': False, 'message': 'Report not found.'}), 404
 
         stored_filename = report_details['stored_filename']
         
@@ -393,15 +393,15 @@ def delete_report_route(report_id):
         # Delete the document's vectors from the FAISS index
         doc_processor.delete_document(report_id)
 
-        return jsonify({'success': True, 'message': 'Rapor başarıyla silindi.'})
+        return jsonify({'success': True, 'message': 'Report deleted successfully.'})
     except Exception as e:
         print(f"Error deleting report {report_id}: {e}") # Log for debugging
-        return jsonify({'success': False, 'message': f'Rapor silinirken bir hata oluştu: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': f'An error occurred while deleting the report: {str(e)}'}), 500
 
 @app.route('/delete_all_reports', methods=['DELETE'])
 def delete_all_reports():
     if 'user_id' not in session:
-        return jsonify({'success': False, 'message': 'Yetkisiz erişim.'}), 401
+        return jsonify({'success': False, 'message': 'Unauthorized access.'}), 401
     try:
         # 1. Tüm raporları veritabanından çek
         all_reports = database.get_reports()
@@ -418,10 +418,10 @@ def delete_all_reports():
         cursor.execute('DELETE FROM uploaded_reports')
         conn.commit()
         conn.close()
-        return jsonify({'success': True, 'message': 'Tüm raporlar ve ilişkili veriler silindi.'})
+        return jsonify({'success': True, 'message': 'All reports and related data were deleted.'})
     except Exception as e:
         print(f"Error deleting all reports: {e}")
-        return jsonify({'success': False, 'message': f'Tüm raporlar silinirken bir hata oluştu: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': f'An error occurred while deleting all reports: {str(e)}'}), 500
 
 if __name__ == '__main__':
     # Initialize the database when running the app directly
@@ -458,13 +458,13 @@ if __name__ == '__main__':
     database.seed_default_users()
     @app.errorhandler(RequestEntityTooLarge)
     def handle_large_file(e):
-        return jsonify({'success': False, 'message': 'Dosya boyutu sınırı aşıldı (20MB).'}), 413
+        return jsonify({'success': False, 'message': 'File size limit exceeded (20MB).'}), 413
 
     @app.errorhandler(Exception)
     def handle_unexpected_error(e):
         if isinstance(e, HTTPException):
             return e
-        app.logger.exception('Beklenmeyen sunucu hatası')
-        return jsonify({'success': False, 'message': 'Sunucu hatası. Lütfen daha sonra tekrar deneyin.'}), 500
+        app.logger.exception('Unexpected server error')
+        return jsonify({'success': False, 'message': 'Server error. Please try again later.'}), 500
 
     app.run(debug=True, host='0.0.0.0', port=5000)

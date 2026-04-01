@@ -35,7 +35,7 @@ def test_get_kurum_bilgisi():
 
     # Test with a keyword not in the knowledge base
     unknown_info = bot.get_kurum_bilgisi("kantin menüsü")
-    assert "Bu konuda bilgi bulunamadı." == unknown_info
+    assert "No information was found on this topic." == unknown_info
 
     # Test case sensitivity (should be handled by "in soru.lower()")
     mesai_info_lower = bot.get_kurum_bilgisi("mesai ücreti")
@@ -64,7 +64,7 @@ def test_get_weather_city_not_found_handling(mocker):
     weather_response = bot.get_weather("OlmayanBirSehir")
 
     # Assert that the bot returns the specific message for city not found
-    assert weather_response == "Hangi şehir için hava durumunu öğrenmek istiyorsunuz?"
+    assert weather_response == "Which city would you like the weather for?"
 
     # Example of testing a successful weather call (optional, but good practice)
     mock_success_response = mocker.Mock()
@@ -75,7 +75,7 @@ def test_get_weather_city_not_found_handling(mocker):
     }
     mocker.patch('requests.get', return_value=mock_success_response)
     weather_success = bot.get_weather("Ankara")
-    assert "Ankara için hava: açık, sıcaklık: 25°C" == weather_success
+    assert "Weather in Ankara: açık, temperature: 25°C" == weather_success
 
 def test_support_ticket_flow_no_llm(mocker):
     """
@@ -112,7 +112,7 @@ def test_support_ticket_flow_no_llm(mocker):
     response1 = bot.process_message(user_message_initiate, test_user_id)
 
     # Bot should ask for the department
-    expected_response1 = f"Anladım, destek talebi oluşturmak istiyorsunuz. Hangi departmana iletelim? Seçenekler: {', '.join(bot.DEPARTMANLAR)}"
+    expected_response1 = f"Understood, you want to create a support ticket. Which department should I send it to? Options: {', '.join(bot.DEPARTMANLAR)}"
     assert response1 == expected_response1
     assert bot.user_states[test_user_id]['waiting_for_department'] == True
     assert bot.user_states[test_user_id]['pending_ticket'] is not None
@@ -125,7 +125,7 @@ def test_support_ticket_flow_no_llm(mocker):
     response2 = bot.process_message(user_message_department, test_user_id)
 
     # Bot should now ask for the description
-    expected_response2 = "IT departmanı için destek talebi oluşturuyorum. Lütfen talebinizin açıklamasını yazar mısınız?"
+    expected_response2 = "I am creating a support ticket for the IT department. Please describe your request."
     assert response2 == expected_response2
     assert bot.user_states[test_user_id]['waiting_for_department'] == False
     assert bot.user_states[test_user_id]['waiting_for_description'] == True
@@ -141,8 +141,8 @@ def test_support_ticket_flow_no_llm(mocker):
 
     # Bot should confirm ticket creation and a ticket_id should be generated
     # We need to check if the response contains key phrases as ticket_id is random.
-    assert "IT departmanına" in response3
-    assert "ID'li destek talebiniz oluşturuldu." in response3
+    assert "has been created for the IT department" in response3
+    assert "support ticket with ID" in response3
 
     # Check that add_support_ticket was called
     mock_add_ticket.assert_called_once()
@@ -160,8 +160,8 @@ def test_support_ticket_flow_no_llm(mocker):
     assert call_args_final_history[0] == test_user_id
     assert call_args_final_history[1] == "destek_talebi_oluşturuldu"
     assert call_args_final_history[2] == user_message_description # user message
-    assert "IT departmanına" in call_args_final_history[3] # bot response part
-    assert "ID'li destek talebiniz oluşturuldu" in call_args_final_history[3] # bot response part
+    assert "has been created for the IT department" in call_args_final_history[3]
+    assert "support ticket with ID" in call_args_final_history[3]
 
     # User state should be cleared
     assert bot.user_states[test_user_id].get('pending_ticket') is None

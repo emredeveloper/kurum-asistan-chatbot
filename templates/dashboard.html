@@ -1,32 +1,32 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sorgu Dashboard</title>
+    <title>Query Dashboard</title>
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body class="dashboard-body">
     <div class="dashboard-container">
         <div class="dashboard-header">
             <div>
-                <h1>📊 Sorgu Dashboard</h1>
-                <p>Özet | Sistem Etkileşimleri</p>
+                <h1>📊 Query Dashboard</h1>
+                <p>Overview | System Interactions</p>
             </div>
             <div class="header-actions">
-                <button id="themeBtn" class="theme-btn" title="Koyu/Açık Tema">🌙</button>
-                <a href="/tutorial" class="back-btn">📖 Özellikler</a>
-                <a href="/" class="back-btn">← Sohbete Geri Dön!</a>
+                <button id="themeBtn" class="theme-btn" title="Dark/Light Theme">🌙</button>
+                <a href="/tutorial" class="back-btn">📖 Features</a>
+                <a href="/" class="back-btn">← Back to Chat</a>
             </div>
         </div>
 
         <div class="stats-cards">
             <div class="stat-card">
-                <div class="stat-title">Tüm Raporlar</div>
+                <div class="stat-title">Total Reports</div>
                 <div class="stat-value" id="statTotalReports">-</div>
             </div>
             <div class="stat-card">
-                <div class="stat-title">İşlenen</div>
+                <div class="stat-title">Processed</div>
                 <div class="stat-value" id="statProcessedReports">-</div>
             </div>
             <div class="stat-card">
@@ -34,23 +34,23 @@
                 <div class="stat-value" id="statPendingReports">-</div>
             </div>
             <div class="stat-card">
-                <div class="stat-title">Açık Talepler</div>
+                <div class="stat-title">Open Tickets</div>
                 <div class="stat-value" id="statOpenTickets">-</div>
             </div>
         </div>
 
         <div class="dashboard-grid">
             <div class="grid-item">
-                <h2>Destek Talepleri</h2>
+                <h2>Support Tickets</h2>
                 <div class="table-wrapper">
                     <table>
                         <thead>
                             <tr>
                                 <th>ID</th>
-                                <th>Departman</th>
-                                <th>Açıklama</th>
-                                <th>Durum</th>
-                                <th>İşlem</th>
+                                <th>Department</th>
+                                <th>Description</th>
+                                <th>Status</th>
+                                <th>Action</th>
                             </tr>
                         </thead>
                         <tbody id="supportTicketsTable">
@@ -61,18 +61,18 @@
             </div>
 
             <div class="grid-item">
-                <h2>Yüklenen Raporlar</h2>
+                <h2>Uploaded Reports</h2>
                 <div class="table-wrapper">
-                    <button id="deleteAllBtn" class="delete-btn" style="margin-bottom:10px;">Hepsini Sil</button>
+                    <button id="deleteAllBtn" class="delete-btn" style="margin-bottom:10px;">Delete All</button>
                     <table>
                         <thead>
                             <tr>
                                 <th>ID</th>
-                                <th>Klasör Adı</th>
-                                <th>Yükleyen</th>
-                                <th>Yükleme Tarihi</th>
-                                <th>İndir</th>
-                                <th>Sil</th>
+                                <th>File Name</th>
+                                <th>Uploaded By</th>
+                                <th>Upload Date</th>
+                                <th>Download</th>
+                                <th>Delete</th>
                             </tr>
                         </thead>
                         <tbody id="reportsTable">
@@ -83,15 +83,15 @@
             </div>
 
             <div class="grid-item grid-item-full-width">
-                <h2>Sorgu Geçmişi</h2>
+                <h2>Query History</h2>
                  <div class="table-wrapper">
                     <table>
                         <thead>
                             <tr>
-                                <th>Tür</th>
-                                <th>Kullanıcı Mesajı</th>
-                                <th>Bot Yanıtı</th>
-                                <th>Tarih</th>
+                                <th>Type</th>
+                                <th>User Message</th>
+                                <th>Bot Response</th>
+                                <th>Date</th>
                             </tr>
                         </thead>
                         <tbody id="historyTable">
@@ -104,7 +104,7 @@
     </div>
 
     <script>
-        // Tema Yönetimi
+        // Theme management
         document.addEventListener('DOMContentLoaded', function() {
             const themeBtn = document.getElementById('themeBtn');
             const body = document.body;
@@ -166,7 +166,7 @@
                             <td>${report.original_filename}</td>
                             <td>${report.uploader_name}</td>
                             <td>${new Date(report.created_at).toLocaleString('tr-TR')}</td>
-                            <td><a href="/download_report/${report.stored_filename}" class="download-link">İndir</a></td>
+                            <td><a href="/download_report/${report.stored_filename}" class="download-link">Download</a></td>
                             <td><button onclick="deleteReport(${report.id})" class="delete-btn">Delete</button></td>
                         </tr>`;
                         reportsTableBody.innerHTML += row;
