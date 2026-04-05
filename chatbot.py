@@ -24,6 +24,65 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "YOUR_API_KEY_HERE")
 
+GENERAL_ASSISTANT_SYSTEM = """You are a helpful workplace assistant. Answer clearly and accurately.
+Use markdown when it helps (headings, short lists, code blocks). If you do not know something, say so.
+Reply in the same language the user writes in (e.g. Turkish → Turkish) unless they ask otherwise.
+Stay on topic; use prior turns in this chat only when they are relevant."""
+
+# Wire markers consumed by templates/index.html (collapsible "thinking" UI)
+WIRE_THINK_START = "[[[THINK]]]"
+WIRE_THINK_END = "[[[/THINK]]]"
+
+
+def _coerce_reasoning_to_str(value) -> str:
+    """Normalize LM Studio / OpenAI reasoning fields (str, list, or nested dict)."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, list):
+        parts = [_coerce_reasoning_to_str(x) for x in value]
+        return "\n".join(p for p in parts if p)
+    if isinstance(value, dict):
+        for key in ("text", "content", "reasoning", "reasoning_content", "value", "delta"):
+            if key in value:
+                inner = _coerce_reasoning_to_str(value.get(key))
+                if inner.strip():
+                    return inner
+        parts = []
+        for _k, v in value.items():
+            if isinstance(v, (str, list, dict)):
+                s = _coerce_reasoning_to_str(v)
+                if s.strip() and len(s) < 100000:
+                    parts.append(s.strip())
+        return "\n\n".join(parts) if parts else ""
+    return ""
+
+
+def _reasoning_from_mapping(obj: dict | None) -> str:
+    if not isinstance(obj, dict):
+        return ""
+    for key in (
+        "reasoning_content",
+        "reasoning",
+        "thinking",
+        "thought",
+    ):
+        s = _coerce_reasoning_to_str(obj.get(key))
+        if s.strip():
+            return s.strip()
+    return ""
+
+
+def _lm_reply_with_thinking(reason: str, content: str) -> str:
+    reason = (reason or "").strip()
+    content = (content or "").strip()
+    if reason:
+        return f"{WIRE_THINK_START}{reason}{WIRE_THINK_END}{content}"
+    return content
+
 
 def get_default_model():
     if LLM_PROVIDER == "ollama":
@@ -75,7 +134,54 @@ class CitizenAssistantBot:
         example = f"Example: {example_verb} document {first_id}"
         return options_text, example
 
-    def ollama_chat(self, prompt: str, model: str | None = None) -> str:
+    def _messages_for_general_chat(self, user_prompt: str, user_id: str) -> list:
+        """OpenAI-style messages: system + chronological history + latest user message."""
+        messages: list = [{"role": "system", "content": GENERAL_ASSISTANT_SYSTEM}]
+        hist = database.get_chat_history(user_id, limit=32)
+        pairs: list[tuple[str, str]] = []
+        for h in reversed(hist):
+            um = (h.get("user_message") or "").strip()
+            br = (h.get("bot_response") or "").strip()
+            if not um or not br:
+                continue
+            if len(um) > 8000:
+                um = um[:8000] + "…"
+            if len(br) > 12000:
+                br = br[:12000] + "…"
+            pairs.append((um, br))
+        max_turns = 10
+        pairs = pairs[-max_turns:]
+        for um, br in pairs:
+            messages.append({"role": "user", "content": um})
+            messages.append({"role": "assistant", "content": br})
+        messages.append({"role": "user", "content": user_prompt})
+        return messages
+
+    def _ollama_prompt_with_conversation(self, user_prompt: str, user_id: str) -> str:
+        """Prefix recent turns for /api/generate (no native multi-turn)."""
+        hist = database.get_chat_history(user_id, limit=32)
+        blocks: list[str] = []
+        for h in reversed(hist):
+            um = (h.get("user_message") or "").strip()
+            br = (h.get("bot_response") or "").strip()
+            if not um or not br:
+                continue
+            if len(um) > 6000:
+                um = um[:6000] + "…"
+            if len(br) > 8000:
+                br = br[:8000] + "…"
+            blocks.append(f"User: {um}\nAssistant: {br}")
+        blocks = blocks[-10:]
+        if not blocks:
+            return user_prompt
+        prior = "\n\n".join(blocks)
+        return (
+            f"{GENERAL_ASSISTANT_SYSTEM}\n\n"
+            f"Conversation so far:\n{prior}\n\n"
+            f"User: {user_prompt}\nAssistant:"
+        )
+
+    def ollama_chat(self, prompt: str, model: str | None = None, conversation_user_id: str | None = None) -> str:
         """Send a chat completion request via the configured LLM provider.
 
         Name kept for backward compatibility (tests mock this method).
@@ -84,12 +190,17 @@ class CitizenAssistantBot:
             selected_model = model or get_default_model()
 
             if LLM_PROVIDER == "ollama":
+                full_prompt = (
+                    self._ollama_prompt_with_conversation(prompt, conversation_user_id)
+                    if conversation_user_id
+                    else prompt
+                )
                 response = requests.post(
                     f"{OLLAMA_BASE_URL}/api/generate",
                     headers={"Content-Type": "application/json"},
                     json={
                         "model": selected_model,
-                        "prompt": prompt,
+                        "prompt": full_prompt,
                         "stream": False,
                         "options": {"temperature": 0.2}
                     },
@@ -106,11 +217,13 @@ class CitizenAssistantBot:
             if LM_STUDIO_API_KEY:
                 headers["Authorization"] = f"Bearer {LM_STUDIO_API_KEY}"
 
+            if conversation_user_id:
+                msg_list = self._messages_for_general_chat(prompt, conversation_user_id)
+            else:
+                msg_list = [{"role": "user", "content": prompt}]
             payload = {
                 "model": selected_model,
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ],
+                "messages": msg_list,
                 "temperature": 0.2,
                 "stream": False
             }
@@ -119,8 +232,13 @@ class CitizenAssistantBot:
             data = response.json()
 
             choices = data.get("choices", [])
-            if choices and "message" in choices[0] and choices[0]["message"].get("content"):
-                return choices[0]["message"]["content"].strip()
+            if choices and "message" in choices[0]:
+                msg = choices[0]["message"] or {}
+                content = (msg.get("content") or "").strip()
+                reason = _reasoning_from_mapping(msg)
+                merged = _lm_reply_with_thinking(reason, content)
+                if merged:
+                    return merged.strip()
 
             # Fallback for older /v1/completions style responses
             if choices and choices[0].get("text"):
@@ -130,17 +248,22 @@ class CitizenAssistantBot:
         except Exception as e:
             return f"LLM error: {e}"
 
-    def ollama_chat_stream(self, prompt: str, model: str | None = None) -> Iterator[str]:
+    def ollama_chat_stream(self, prompt: str, model: str | None = None, conversation_user_id: str | None = None) -> Iterator[str]:
         selected_model = model or get_default_model()
 
         try:
             if LLM_PROVIDER == "ollama":
+                full_prompt = (
+                    self._ollama_prompt_with_conversation(prompt, conversation_user_id)
+                    if conversation_user_id
+                    else prompt
+                )
                 with requests.post(
                     f"{OLLAMA_BASE_URL}/api/generate",
                     headers={"Content-Type": "application/json"},
                     json={
                         "model": selected_model,
-                        "prompt": prompt,
+                        "prompt": full_prompt,
                         "stream": True,
                         "options": {"temperature": 0.2}
                     },
@@ -156,7 +279,12 @@ class CitizenAssistantBot:
                             data = json.loads(line)
                         except json.JSONDecodeError:
                             continue
-                        chunk = data.get("response", "")
+                        chunk = data.get("response", "") or ""
+                        thinking = _coerce_reasoning_to_str(
+                            data.get("thinking") or data.get("thought")
+                        )
+                        if thinking.strip():
+                            yield f"{WIRE_THINK_START}{thinking}{WIRE_THINK_END}"
                         if chunk:
                             yield chunk
                 return
@@ -165,12 +293,17 @@ class CitizenAssistantBot:
             if LM_STUDIO_API_KEY:
                 headers["Authorization"] = f"Bearer {LM_STUDIO_API_KEY}"
 
+            if conversation_user_id:
+                stream_messages = self._messages_for_general_chat(prompt, conversation_user_id)
+            else:
+                stream_messages = [{"role": "user", "content": prompt}]
+
             with requests.post(
                 f"{LM_STUDIO_BASE_URL}/chat/completions",
                 headers=headers,
                 json={
                     "model": selected_model,
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": stream_messages,
                     "temperature": 0.2,
                     "stream": True
                 },
@@ -189,9 +322,18 @@ class CitizenAssistantBot:
                         data = json.loads(payload)
                     except json.JSONDecodeError:
                         continue
-                    delta = (((data.get("choices") or [{}])[0]).get("delta") or {}).get("content", "")
-                    if delta:
-                        yield delta
+                    choice0 = (data.get("choices") or [{}])[0]
+                    d = choice0.get("delta") or {}
+                    think = _reasoning_from_mapping(d)
+                    if not think:
+                        think = _reasoning_from_mapping(choice0.get("message"))
+                    if not think:
+                        think = _reasoning_from_mapping(data)
+                    content = d.get("content") or ""
+                    if think:
+                        yield f"{WIRE_THINK_START}{think}{WIRE_THINK_END}"
+                    if content:
+                        yield content
         except Exception as e:
             yield f"\nLLM error: {e}"
 
@@ -457,7 +599,9 @@ User message: {message}
             return date_response
 
         # Step 5: If no other handler caught the message, use LLM for a general chat response
-        bot_response = self.ollama_chat(message, model=self.user_models.get(user_id))
+        bot_response = self.ollama_chat(
+            message, model=self.user_models.get(user_id), conversation_user_id=user_id
+        )
         database.add_chat_history(user_id, "llm_response", message, bot_response)
         return bot_response
 
@@ -483,7 +627,9 @@ User message: {message}
             return
 
         chunks = []
-        for chunk in self.ollama_chat_stream(message, model=self.user_models.get(user_id)):
+        for chunk in self.ollama_chat_stream(
+            message, model=self.user_models.get(user_id), conversation_user_id=user_id
+        ):
             chunks.append(chunk)
             yield chunk
 
@@ -695,49 +841,52 @@ User message: {message}
         return bot_response
 
     def _explain_report(self, report_id, query, original_user_message, user_id):
-        search_results = doc_processor.search_in_documents(query, top_k=3)
+        search_results = doc_processor.search_in_documents(query, top_k=6)
         filtered_results = [r for r in search_results if str(r['report_id']) == str(report_id)]
         if not filtered_results:
             return "No relevant information was found in the selected document."
-        context_for_llm = "\n\n".join([result['text'] for result in filtered_results])
+        context_for_llm = "\n\n---\n\n".join([result['text'] for result in filtered_results])
         rag_prompt = f'''
-Answer the user's question using the document contents provided below.
-Base your answer solely on these contents. Format your answer as a well-organized markdown list.
-If the answer is not in the contents, say "I could not find information on this topic in the documents."
+You are answering from retrieved excerpts of ONE document. Rules:
+- Use ONLY the excerpts below. Do not invent facts, citations, or sections not present.
+- If the excerpts do not contain enough information, say clearly that it is not in the provided text.
+- Answer in the same language as the user's question when possible.
+- Prefer a short markdown structure: brief intro if needed, then bullet points with the key facts.
 
-Document Contents:
+Document excerpts (may be out of order):
 {context_for_llm}
 
-User Question: {query}
+User question: {query}
 
-Your Answer:
+Your answer:
 '''
         bot_response = self.ollama_chat(rag_prompt, model=self.user_models.get(user_id))
         database.add_chat_history(user_id, "document_query", original_user_message, bot_response, json.dumps({"query": query, "report_id": report_id}))
         return bot_response
 
     def _summarize_report(self, report_id, original_user_message, user_id: str):
-        top_chunks = doc_processor.search_in_documents("", top_k=5)
+        top_chunks = doc_processor.search_in_documents("", top_k=8)
         filtered = [r for r in top_chunks if str(r['report_id']) == str(report_id)]
         if not filtered:
-            guess_query = "general summary introduction purpose conclusion findings abstract overview"
-            filtered = [r for r in doc_processor.search_in_documents(guess_query, top_k=8) if str(r['report_id']) == str(report_id)]
+            guess_query = "general summary introduction purpose conclusion findings abstract overview methods results"
+            filtered = [r for r in doc_processor.search_in_documents(guess_query, top_k=10) if str(r['report_id']) == str(report_id)]
         if not filtered:
             bot_response = "Not enough content was found in the selected document to generate a summary."
             database.add_chat_history(user_id, "doc_summary", original_user_message, bot_response, json.dumps({"report_id": report_id}))
             return bot_response
 
-        context_for_llm = "\n\n".join([res['text'] for res in filtered])
+        context_for_llm = "\n\n---\n\n".join([res['text'] for res in filtered])
         prompt = f'''
-Based on the following document excerpts, generate a short, clear, bullet-point summary.
-- Write at most 6 bullet points.
-- Highlight the purpose, methodology, key findings, and conclusions if available.
-- Do not fabricate information that is not in the text.
+Summarize the document using ONLY the excerpts below.
+- At most 7 bullet points; keep each bullet one or two sentences.
+- Cover purpose/topic, main methods or setup, key results or claims, and conclusions or limitations if present.
+- Do not add information that is not supported by the excerpts.
+- Match the document's primary language (e.g. English paper → English summary; Turkish → Turkish).
 
-Document Excerpts:
+Document excerpts (may be incomplete or out of order):
 {context_for_llm}
 
-Output:
+Summary:
 '''
         bot_response = self.ollama_chat(prompt, model=self.user_models.get(user_id))
         database.add_chat_history(user_id, "doc_summary", original_user_message, bot_response, json.dumps({"report_id": report_id}))

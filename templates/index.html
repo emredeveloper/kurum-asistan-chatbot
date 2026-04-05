@@ -1,133 +1,158 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="tr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Citizen Assistant Chatbot</title>
+    <title>Kurum Asistanı</title>
     <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body>
-    <div class="topbar" role="banner">
-        <div class="brand"><span class="logo">🤖</span>Assistant</div>
-        <div style="display:flex; gap:10px; align-items:center;">
-            <button class="dashboard-btn" onclick="openTutorial()" aria-label="Open the Features">📖 Features</button>
-            <button class="dashboard-btn" onclick="openDashboard()" aria-label="Open the Dashboard">📊 Dashboard</button>
-            <button id="themeBtn" class="theme-btn" title="Dark/Light Theme" aria-pressed="false">🌙</button>
+<body class="page-chat">
+    <header class="app-header" role="banner">
+        <div class="app-header__brand">
+            <span class="app-header__mark" aria-hidden="true">◆</span>
+            <div>
+                <div class="app-header__title">Kurum Asistanı</div>
+                <div class="app-header__tagline">Belge, bilgi tabanı ve destek talepleri</div>
+            </div>
         </div>
-    </div>
+        <nav class="app-header__actions" aria-label="Sayfa bağlantıları">
+            <button type="button" class="btn btn--ghost" onclick="openTutorial()">Özellikler</button>
+            <button type="button" class="btn btn--ghost" onclick="openDashboard()">Panel</button>
+            <button type="button" id="themeBtn" class="btn btn--icon" title="Tema" aria-pressed="false" aria-label="Açık veya koyu tema">🌙</button>
+        </nav>
+    </header>
 
-    <div class="app-layout">
-        <aside class="sidebar" role="complementary" aria-label="Settings">
-            <div class="sidebar-section">
-                <h3>Model</h3>
-                <select id="modelSelect" class="chat-input" style="width:100%; padding:10px 12px;" aria-label="Model selection">
-                    <option>Loading...</option>
+    <div class="app-shell">
+        <aside class="side-panel" role="complementary" aria-label="Ayarlar">
+            <section class="side-card">
+                <h2 class="side-card__title">Model</h2>
+                <select id="modelSelect" class="field field--select" aria-label="Model seçimi">
+                    <option>Yükleniyor…</option>
                 </select>
-                <p class="hint" style="margin-top:6px;">Try any model you want.</p>
-            </div>
-            <div class="sidebar-section">
-                <h3>Upload</h3>
-                <form id="chatReportForm">
-                    <div class="upload-area">
-                        <input type="file" name="file" id="chatReportFile" accept=".pdf,.doc,.docx" required hidden aria-label="Choose a document">
-                        <label for="chatReportFile" class="upload-label">
-                            <strong>Choose file</strong>
-                            <span>or drop it here!</span>
-                        </label>
-                        <span id="fileName" class="file-name-display"></span>
+                <p class="side-card__hint">LM Studio veya yapılandırılan sağlayıcıdaki modeller listelenir.</p>
+            </section>
+
+            <section class="side-card">
+                <h2 class="side-card__title">Belge yükle</h2>
+                <form id="chatReportForm" class="upload-stack">
+                    <label class="dropzone" for="chatReportFile">
+                        <input type="file" name="file" id="chatReportFile" accept=".pdf,.doc,.docx" required hidden>
+                        <span class="dropzone__title">Dosya seç veya sürükle</span>
+                        <span class="dropzone__sub">PDF, Word</span>
+                        <span id="fileName" class="dropzone__file" aria-live="polite"></span>
+                    </label>
+                    <div class="upload-row">
+                        <input type="text" name="uploader" id="chatUploaderName" class="field" placeholder="Adınız" required aria-label="Yükleyen adı">
+                        <button type="submit" class="btn btn--primary">Yükle</button>
                     </div>
-                    <div class="upload-fields">
-                        <input type="text" name="uploader" id="chatUploaderName" placeholder="Your name" required aria-label="Name">
-                        <button type="submit" aria-label="Upload the document">Upload</button>
-                    </div>
-                    <span id="chatReportMsg"></span>
+                    <span id="chatReportMsg" class="form-msg" aria-live="polite"></span>
                 </form>
-            </div>
-            <div class="sidebar-section">
-                <h3>Examples</h3>
-                <ul style="padding-left:18px; color:#6b7280;">
-                    <li>"Summarize the file"</li>
-                    <li>“What’s the policy of...?”</li>
-                    <li>“Open an IT support request”</li>
+            </section>
+
+            <section class="side-card">
+                <h2 class="side-card__title">Örnekler</h2>
+                <ul class="example-list">
+                    <li>«Dosyayı özetle»</li>
+                    <li>«İçeriği açıkla»</li>
+                    <li>«İstanbul hava durumu»</li>
+                    <li>«IT için destek talebi aç»</li>
                 </ul>
-            </div>
+            </section>
         </aside>
 
-        <main>
-            <div class="chat-container">
-                <div class="chat-header">
-                    <h1>Start a Conversation</h1>
-                    <p>Here to help with support, organization info, documents, and daily tasks.</p>
-                </div>
+        <main class="chat-workspace">
+            <div class="chat-hero">
+                <h1 class="chat-hero__headline">Sohbete başla</h1>
+                <p class="chat-hero__text">Yüklediğin belgeler, kurum bilgisi ve günlük görevler için buradayım.</p>
+            </div>
 
-                <div class="info-box" id="infoBox">
-                    <div class="info-content">
-                        <button class="info-close" onclick="hideInfoBox()" aria-label="Close the welcome box">×</button>
-                        <h3>🤖 Hello! I am your Assistant</h3>
-                        <p>I can help you with the following:</p>
-                        <ul>
-                            <li>🌤️ Provide current weather information</li>
-                            <li>💼 Create support requests</li>
-                            <li>🏢 Answer questions from our internal knowledge base</li>
-                            <li>📄 Upload your documents (Word/PDF) and ask questions about them</li>
-                        </ul>
-                    </div>
-                </div>
-
-                <div class="chat-messages" id="chatMessages"></div>
-                <div class="typing-indicator" id="typingIndicator">🤖 Assistant is typing...</div>
-                <div class="chat-input-container">
-                    <div class="chat-input-wrapper">
-                        <input type="text" class="chat-input" id="messageInput" 
-                               placeholder="Type your message... (Enter: Send, Shift+Enter: New line)" 
-                               onkeypress="handleKeyPress(event)" aria-label="Message input field">
-                        <button class="send-btn" id="sendBtn" onclick="sendMessage()" disabled aria-disabled="true">Send</button>
-                    </div>
-                    <div class="hint" aria-live="polite">Enter: send • Shift+Enter: new line</div>
+            <div class="info-box" id="infoBox" role="region" aria-label="Hoş geldin">
+                <div class="info-content">
+                    <button type="button" class="info-close" onclick="hideInfoBox()" aria-label="Kapat">×</button>
+                    <h3>Merhaba</h3>
+                    <p>Şunlarda yardımcı olabilirim:</p>
+                    <ul>
+                        <li>Hava durumu</li>
+                        <li>Destek talebi oluşturma</li>
+                        <li>Kurum bilgi tabanı</li>
+                        <li>PDF/Word belge yükleme ve soru yanıtlama</li>
+                    </ul>
                 </div>
             </div>
+
+            <div class="chat-feed" id="chatMessages" role="log" aria-live="polite" aria-relevant="additions"></div>
+            <div class="typing-indicator" id="typingIndicator" aria-hidden="true">Asistan yazıyor…</div>
+
+            <div class="composer">
+                <label class="sr-only" for="messageInput">Mesaj</label>
+                <textarea id="messageInput" class="composer__input" rows="2"
+                    placeholder="Mesajınızı yazın… (Enter: gönder, Shift+Enter: satır)"
+                    aria-label="Mesaj alanı"></textarea>
+                <button type="button" class="btn btn--primary composer__send" id="sendBtn" onclick="sendMessage()" disabled aria-disabled="true">Gönder</button>
+            </div>
+            <p class="composer__hint">Enter gönderir · Shift+Enter yeni satır</p>
         </main>
     </div>
 
     <script src="/static/marked.min.js"></script>
     <script>
         let conversationStarted = false;
+
+        function scrollChatToBottom() {
+            const el = document.getElementById('chatMessages');
+            el.scrollTop = el.scrollHeight;
+        }
+
         function addMessage(sender, content) {
             const messagesContainer = document.getElementById('chatMessages');
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${sender}`;
             const avatar = sender === 'user' ? '👤' : '🤖';
-            let renderedContent = content;
+
+            const avatarEl = document.createElement('div');
+            avatarEl.className = 'message-avatar';
+            avatarEl.textContent = avatar;
+
+            const contentEl = document.createElement('div');
+            contentEl.className = 'message-content';
+
             const multiDocHint = 'Multiple documents found. Choose one by ID:';
-            if (sender === 'bot' && typeof content === 'string' && (content.includes(multiDocHint) || content.includes('Found too many file. Choose the file that you want to use.'))) {
+            const legacyMulti = 'Found too many file. Choose the file that you want to use.';
+
+            if (sender === 'user') {
+                contentEl.textContent = typeof content === 'string' ? content : String(content ?? '');
+            } else if (typeof content === 'string' && (content.includes(multiDocHint) || content.includes(legacyMulti))) {
                 const existingChoices = document.querySelectorAll('.message.bot .report-choice');
                 if (existingChoices.length > 0) {
                     const lastChoice = existingChoices[existingChoices.length - 1];
-                    if (lastChoice && lastChoice.closest('.message')) {
-                        lastChoice.closest('.message').remove();
-                    }
+                    const wrap = lastChoice && lastChoice.closest('.message');
+                    if (wrap) wrap.remove();
                 }
-                renderedContent = renderReportOptions(content);
-            } else if (sender === 'bot') {
-                const normalized = normalizeForMarkdown(typeof content === 'string' ? content : '');
-                if (window.marked) {
-                    if (window.marked.setOptions) {
-                        window.marked.setOptions({ gfm: true, breaks: true, smartLists: true });
-                    }
-                    renderedContent = marked.parse(normalized);
+                contentEl.innerHTML = renderReportOptions(content);
+            } else {
+                const raw = typeof content === 'string' ? content : '';
+                const parsed = parseAllThinking(raw, { skipRedacted: false });
+                if (parsed.thinking) {
+                    buildThinkingAnswerDom(contentEl, parsed.thinking, parsed.answer, { markdownAnswer: true, detailsOpen: false });
                 } else {
-                    renderedContent = normalized.replace(/\n/g, '<br>');
+                    const normalized = normalizeForMarkdown(raw);
+                    if (window.marked) {
+                        if (window.marked.setOptions) {
+                            window.marked.setOptions({ gfm: true, breaks: true, smartLists: true });
+                        }
+                        contentEl.innerHTML = marked.parse(normalized);
+                    } else {
+                        contentEl.textContent = normalized;
+                    }
                 }
             }
-            messageDiv.innerHTML = `
-                <div class="message-avatar">${avatar}</div>
-                <div class="message-content">${renderedContent}</div>
-            `;
-            messagesContainer.appendChild(messageDiv);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
-            // Attach events to document selection buttons
-            if (sender === 'bot' && content && (content.includes('Multiple documents found. Choose one by ID:') || content.includes('Found too many file. Choose the file that you want to use.'))) {
+            messageDiv.appendChild(avatarEl);
+            messageDiv.appendChild(contentEl);
+            messagesContainer.appendChild(messageDiv);
+            scrollChatToBottom();
+
+            if (sender === 'bot' && typeof content === 'string' && (content.includes(multiDocHint) || content.includes(legacyMulti))) {
                 bindReportOptionButtons();
             }
         }
@@ -136,13 +161,50 @@
             const messagesContainer = document.getElementById('chatMessages');
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message bot';
-            messageDiv.innerHTML = `
-                <div class="message-avatar">🤖</div>
-                <div class="message-content"></div>
-            `;
+            const avatarEl = document.createElement('div');
+            avatarEl.className = 'message-avatar';
+            avatarEl.textContent = '🤖';
+            const wrap = document.createElement('div');
+            wrap.className = 'message-content message-content--streaming bot-reply-wrap';
+            const stack = document.createElement('div');
+            stack.className = 'bot-reply-stack';
+            const details = document.createElement('details');
+            details.className = 'bot-thinking';
+            details.open = true;
+            const summary = document.createElement('summary');
+            summary.textContent = 'İç düşünce';
+            const pre = document.createElement('pre');
+            pre.className = 'bot-thinking__body';
+            details.appendChild(summary);
+            details.appendChild(pre);
+            const answer = document.createElement('div');
+            answer.className = 'bot-answer bot-answer--streaming';
+            stack.appendChild(details);
+            stack.appendChild(answer);
+            wrap.appendChild(stack);
+            details.hidden = true;
+            details.style.display = 'none';
+            messageDiv.appendChild(avatarEl);
+            messageDiv.appendChild(wrap);
             messagesContainer.appendChild(messageDiv);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
-            return messageDiv.querySelector('.message-content');
+            scrollChatToBottom();
+            return wrap;
+        }
+
+        function updateStreamingBotUI(wrap, fullText) {
+            const parsed = parseAllThinking(fullText, { skipRedacted: true });
+            const details = wrap.querySelector('details.bot-thinking');
+            const pre = wrap.querySelector('.bot-thinking__body');
+            const answer = wrap.querySelector('.bot-answer');
+            const has = !!(parsed.thinking && parsed.thinking.length);
+            details.hidden = !has;
+            details.style.display = has ? '' : 'none';
+            if (has) {
+                pre.textContent = parsed.thinking;
+                details.open = parsed.partialWire;
+            }
+            answer.textContent = parsed.answer;
+            scrollChatToBottom();
         }
 
         function renderBotContent(targetEl, content) {
@@ -153,17 +215,38 @@
                 }
                 targetEl.innerHTML = marked.parse(normalized);
             } else {
-                targetEl.innerHTML = normalized.replace(/\n/g, '<br>');
+                targetEl.textContent = normalized;
             }
-            const messagesContainer = document.getElementById('chatMessages');
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            scrollChatToBottom();
+        }
+
+        function finalizeStreamingBotMessage(wrap, fullText) {
+            wrap.classList.remove('message-content--streaming');
+            const multiDocHint = 'Multiple documents found. Choose one by ID:';
+            const legacyMulti = 'Found too many file. Choose the file that you want to use.';
+            if (fullText.includes(multiDocHint) || fullText.includes(legacyMulti)) {
+                wrap.innerHTML = renderReportOptions(fullText);
+                wrap.classList.remove('bot-reply-wrap');
+                bindReportOptionButtons();
+                scrollChatToBottom();
+                return;
+            }
+            const parsed = parseAllThinking(fullText, { skipRedacted: false });
+            wrap.replaceChildren();
+            if (parsed.thinking) {
+                buildThinkingAnswerDom(wrap, parsed.thinking, parsed.answer, { markdownAnswer: true, detailsOpen: false });
+            } else {
+                wrap.classList.remove('bot-reply-wrap');
+                renderBotContent(wrap, parsed.answer);
+            }
+            scrollChatToBottom();
         }
 
         function renderReportOptions(rawText) {
             const lines = String(rawText || '').split('\n');
-            const info = lines[0] || 'Multiple documents were found.';
+            const info = lines[0] || 'Birden fazla belge bulundu.';
             const example = lines.find(l => l.includes('Example:')) || '';
-            const blockId = 'report-choice-' + Date.now() + '-' + Math.random().toString(36).slice(2,8);
+            const blockId = 'report-choice-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
             let options = [];
             lines.forEach(line => {
                 const m1 = line.match(/^\s*(\d+)\s*:\s*(.+)$/);
@@ -174,12 +257,12 @@
                 if (m2) { options.push({ id: m2[1].trim(), name: m2[2].trim() }); }
             });
             const seen = new Set();
-            options = options.filter(o => { const k = o.id+"|"+o.name; if (seen.has(k)) return false; seen.add(k); return true; });
+            options = options.filter(o => { const k = o.id + '|' + o.name; if (seen.has(k)) return false; seen.add(k); return true; });
             const buildHtml = (opts) => {
-                const btns = opts.map(o => `<button class='select-report-btn' data-reportid='${o.id}'>#${o.id} · ${escapeHtml(o.name)}</button>`).join('');
+                const btns = opts.map(o => `<button type="button" class='select-report-btn' data-reportid='${o.id}'>#${o.id} · ${escapeHtml(o.name)}</button>`).join('');
                 return `<div id='${blockId}' class='report-choice'>
                     <div class='report-choice-title'>${escapeHtml(info)}</div>
-                    <div class='report-choice-buttons'>${btns || '<span class="hint">Cannot load.</span>'}</div>
+                    <div class='report-choice-buttons'>${btns || '<span class="side-card__hint">Liste yüklenemedi.</span>'}</div>
                     <div class='report-choice-example'>${escapeHtml(example)}</div>
                 </div>`;
             };
@@ -207,11 +290,149 @@
                     const reportId = this.getAttribute('data-reportid');
                     let lastUserMsg = getLastUserMessage();
                     if (!lastUserMsg || lastUserMsg.length < 2) {
-                        lastUserMsg = 'Explain the file';
+                        lastUserMsg = 'Belgeyi açıkla';
                     }
                     sendReportExplainRequest(reportId, lastUserMsg);
                 };
             });
+        }
+
+        const WIRE_THINK_START = '[[[THINK]]]';
+        const WIRE_THINK_END = '[[[/THINK]]]';
+
+        function splitWireThink(s) {
+            const thinkParts = [];
+            let out = '';
+            let i = 0;
+            while (i < s.length) {
+                const a = s.indexOf(WIRE_THINK_START, i);
+                if (a === -1) {
+                    out += s.slice(i);
+                    break;
+                }
+                out += s.slice(i, a);
+                const b = s.indexOf(WIRE_THINK_END, a + WIRE_THINK_START.length);
+                if (b === -1) {
+                    thinkParts.push(s.slice(a + WIRE_THINK_START.length));
+                    return { thinking: thinkParts.join('\n\n---\n\n'), answer: out, partial: true };
+                }
+                thinkParts.push(s.slice(a + WIRE_THINK_START.length, b));
+                i = b + WIRE_THINK_END.length;
+            }
+            return { thinking: thinkParts.join('\n\n---\n\n'), answer: out, partial: false };
+        }
+
+        function stripRedactedThink(answer) {
+            let extra = '';
+            let cleaned = answer;
+            const tagBlocks = [
+                /\u003cthink\u003e([\s\S]*?)\u003c\/think\u003e/gi,
+                /\u003credacted_thinking\u003e([\s\S]*?)\u003c\/redacted_thinking\u003e/gi,
+            ];
+            for (const re of tagBlocks) {
+                cleaned = cleaned.replace(re, (_, inner) => {
+                    const t = String(inner).trim();
+                    extra += (extra ? '\n\n---\n\n' : '') + t;
+                    return '';
+                });
+            }
+            return { answer: cleaned.trim(), extraThink: extra.trim() };
+        }
+
+        /**
+         * Gemma / LM Studio sometimes leaves the whole chain in message.content as
+         * "Thinking Process:\\n..." then the real answer (no separate API field).
+         */
+        function extractThinkingProcessMerged(answer) {
+            const marker = 'Thinking Process:';
+            const pos = answer.indexOf(marker);
+            if (pos === -1) {
+                return { think: '', answer };
+            }
+            const before = answer.slice(0, pos).trimEnd();
+            const fromMarker = answer.slice(pos);
+            const candidates = [
+                '\n\n## ', '\n\n# ', '\n\nBu belge', '\n\nBu belg', '\n\nÖzet', '\n\nİşte',
+                '\n\nAşağıda', '\n\n**Bu ', '\n\n**Ö', '\n\nThe document', '\n\nThe paper',
+                '\n\nHere ', '\n\n---', '\n\nMerhaba', '\n\nThis document', '\n\nSummary',
+                '\n\nTL;DR', '\n\nKısaca', '\n\nBelge ', '\n\nİçerik ', '\n\nTabii',
+                '\n\nElbette', '\n\nSure,', '\n\nCertainly'
+            ];
+            let cut = -1;
+            for (const c of candidates) {
+                const j = fromMarker.indexOf(c, marker.length);
+                if (j !== -1 && (cut === -1 || j < cut)) {
+                    cut = j;
+                }
+            }
+            if (cut === -1) {
+                return { think: '', answer };
+            }
+            const think = fromMarker.slice(0, cut).trim();
+            const afterThink = fromMarker.slice(cut).trim();
+            let mergedAnswer = before
+                ? (before + '\n\n' + afterThink).trim()
+                : afterThink;
+            mergedAnswer = mergedAnswer.replace(/^\n+/, '');
+            if (think.length < 20 || mergedAnswer.length < 8) {
+                return { think: '', answer };
+            }
+            return { think, answer: mergedAnswer };
+        }
+
+        function parseAllThinking(fullText, options) {
+            const skipRedacted = options && options.skipRedacted;
+            const w = splitWireThink(fullText);
+            let thinking = (w.thinking || '').trim();
+            let answer = w.answer;
+            if (!skipRedacted) {
+                const r = stripRedactedThink(answer);
+                answer = r.answer;
+                if (r.extraThink) {
+                    thinking = [thinking, r.extraThink].filter(Boolean).join('\n\n---\n\n');
+                }
+            }
+            if (!skipRedacted && !thinking) {
+                const ex = extractThinkingProcessMerged(answer);
+                if (ex.think) {
+                    thinking = ex.think;
+                    answer = ex.answer;
+                }
+            }
+            return { thinking, answer, partialWire: w.partial };
+        }
+
+        function buildThinkingAnswerDom(parent, thinkingText, answerText, opts) {
+            const md = !(opts && opts.markdownAnswer === false);
+            const detailsOpen = !!(opts && opts.detailsOpen);
+            parent.classList.add('bot-reply-wrap');
+            parent.textContent = '';
+            const stack = document.createElement('div');
+            stack.className = 'bot-reply-stack';
+            const details = document.createElement('details');
+            details.className = 'bot-thinking';
+            details.open = detailsOpen;
+            const summary = document.createElement('summary');
+            summary.textContent = 'İç düşünce';
+            const pre = document.createElement('pre');
+            pre.className = 'bot-thinking__body';
+            pre.textContent = thinkingText || '';
+            details.appendChild(summary);
+            details.appendChild(pre);
+            const answerEl = document.createElement('div');
+            answerEl.className = 'bot-answer';
+            stack.appendChild(details);
+            stack.appendChild(answerEl);
+            parent.appendChild(stack);
+            if (!(thinkingText && thinkingText.trim())) {
+                details.hidden = true;
+                details.style.display = 'none';
+            }
+            if (md) {
+                renderBotContent(answerEl, answerText || '');
+            } else {
+                answerEl.textContent = answerText || '';
+            }
         }
 
         function escapeHtml(str) {
@@ -231,7 +452,6 @@
 
             const lines = t.split('\n').map(l => {
                 let line = l;
-               
                 line = line.replace(/^\s*#{1,6}\s*-\s+/, '- ');
                 line = line.replace(/^\s*[•·‣▪–—-]+\s+/, '- ');
                 line = line.replace(/^\s*(\d+)[\)\:]+\s+/, '$1. ');
@@ -241,13 +461,11 @@
             });
 
             t = lines.join('\n');
-           
             t = t.replace(/\n{3,}/g, '\n\n');
             return t.trim();
         }
 
         function getLastUserMessage() {
-         
             const messages = Array.from(document.querySelectorAll('.message.user .message-content'));
             if (messages.length === 0) return '';
             return messages[messages.length - 1].textContent;
@@ -266,16 +484,20 @@
                 addMessage('bot', data.response);
             } catch (error) {
                 hideTypingIndicator();
-                addMessage('bot', 'An error occur.');
+                addMessage('bot', 'Bir hata oluştu.');
             }
         }
 
         function showTypingIndicator() {
-            document.getElementById('typingIndicator').classList.add('show');
+            const t = document.getElementById('typingIndicator');
+            t.classList.add('show');
+            t.setAttribute('aria-hidden', 'false');
         }
 
         function hideTypingIndicator() {
-            document.getElementById('typingIndicator').classList.remove('show');
+            const t = document.getElementById('typingIndicator');
+            t.classList.remove('show');
+            t.setAttribute('aria-hidden', 'true');
         }
 
         async function sendMessage() {
@@ -284,12 +506,11 @@
             const message = input.value.trim();
             if (!message) return;
 
-            // Hide the info box after the first message
             if (!conversationStarted) {
                 const infoBox = document.getElementById('infoBox');
                 if (infoBox) {
                     infoBox.style.animation = 'slideUp 0.3s ease-out forwards';
-                    setTimeout(() => infoBox.style.display = 'none', 300);
+                    setTimeout(() => { infoBox.style.display = 'none'; }, 300);
                 }
                 conversationStarted = true;
             }
@@ -297,7 +518,6 @@
             input.disabled = true;
             sendBtn.disabled = true;
 
-            // Add user message
             addMessage('user', message);
             input.value = '';
 
@@ -306,19 +526,16 @@
             try {
                 const response = await fetch('/chat_stream', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message: message })
                 });
                 if (!response.ok || !response.body) {
                     throw new Error('stream failed');
                 }
 
-                // Hide typing indicator
                 hideTypingIndicator();
 
-                const botContentEl = createStreamingBotMessage();
+                const botWrap = createStreamingBotMessage();
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let fullText = '';
@@ -327,24 +544,23 @@
                     const { value, done } = await reader.read();
                     if (done) break;
                     fullText += decoder.decode(value, { stream: true });
-                    renderBotContent(botContentEl, fullText);
+                    updateStreamingBotUI(botWrap, fullText);
                 }
 
                 fullText += decoder.decode();
-                renderBotContent(botContentEl, fullText);
+                finalizeStreamingBotMessage(botWrap, fullText);
 
             } catch (error) {
                 hideTypingIndicator();
-                addMessage('bot', 'Sorry, something went wrong. Try again!');
+                addMessage('bot', 'Üzgünüm, bir sorun oluştu. Tekrar deneyin.');
             }
 
-            // Re-enable input and button
             input.disabled = false;
             sendBtn.disabled = false;
             input.focus();
         }
 
-        function handleKeyPress(event) {
+        function handleComposerKeydown(event) {
             if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
                 sendMessage();
@@ -359,12 +575,12 @@
             window.open('/tutorial', '_blank');
         }
 
-      
         document.addEventListener('DOMContentLoaded', async function() {
-            document.getElementById('messageInput').focus();
-          
             const inputEl = document.getElementById('messageInput');
             const sendEl = document.getElementById('sendBtn');
+            inputEl.addEventListener('keydown', handleComposerKeydown);
+            inputEl.focus();
+
             function toggleSend() {
                 const hasText = (inputEl.value || '').trim().length > 0;
                 sendEl.disabled = !hasText;
@@ -372,6 +588,7 @@
             }
             inputEl.addEventListener('input', toggleSend);
             toggleSend();
+
             try {
                 const resp = await fetch('/api/models');
                 const data = await resp.json();
@@ -393,7 +610,6 @@
             }
         });
 
-        // Theme toggle and localStorage
         document.addEventListener('DOMContentLoaded', function() {
             const themeBtn = document.getElementById('themeBtn');
             const body = document.body;
@@ -421,12 +637,12 @@
         });
 
         window.hideInfoBox = function() {
-            const infoBox = document.getElementById('infoBox'); 
-            if(infoBox) infoBox.style.display = 'none';
+            const infoBox = document.getElementById('infoBox');
+            if (infoBox) infoBox.style.display = 'none';
         };
 
         const chatReportFile = document.getElementById('chatReportFile');
-        const uploadArea = document.querySelector('.upload-area');
+        const uploadArea = document.querySelector('.dropzone');
         const fileNameDisplay = document.getElementById('fileName');
 
         chatReportFile.addEventListener('change', () => {
@@ -446,19 +662,21 @@
 
         ['dragenter', 'dragover'].forEach(eventName => {
             uploadArea.addEventListener(eventName, () => {
-                uploadArea.classList.add('highlight');
+                uploadArea.classList.add('dropzone--active');
             }, false);
         });
 
         ['dragleave', 'drop'].forEach(eventName => {
             uploadArea.addEventListener(eventName, () => {
-                uploadArea.classList.remove('highlight');
+                uploadArea.classList.remove('dropzone--active');
             }, false);
         });
 
         uploadArea.addEventListener('drop', e => {
             chatReportFile.files = e.dataTransfer.files;
-            fileNameDisplay.textContent = chatReportFile.files[0].name;
+            if (chatReportFile.files.length) {
+                fileNameDisplay.textContent = chatReportFile.files[0].name;
+            }
         }, false);
 
         document.getElementById('chatReportForm').addEventListener('submit', async function(e) {
@@ -467,13 +685,13 @@
             const uploaderInput = document.getElementById('chatUploaderName');
             const msg = document.getElementById('chatReportMsg');
             if (!fileInput.files.length) {
-                msg.textContent = 'Please choose a file.';
+                msg.textContent = 'Lütfen bir dosya seçin.';
                 return;
             }
             const formData = new FormData();
             formData.append('file', fileInput.files[0]);
             formData.append('uploader', uploaderInput.value);
-            msg.textContent = 'Uploading...';
+            msg.textContent = 'Yükleniyor…';
             try {
                 const resp = await fetch('/upload_report', {
                     method: 'POST',
@@ -481,23 +699,20 @@
                 });
                 const data = await resp.json();
                 if (data.success) {
-                    msg.textContent = 'Report successfully uploaded.';
-                    msg.style.color = '#10B981'; // Green for success
-                    addMessage('bot', 'Your file has been processed. Now, you can ask anything you want!');
+                    msg.textContent = 'Yükleme tamam.';
+                    msg.style.color = 'var(--success)';
+                    addMessage('bot', 'Dosyan işlendi. Artık içeriği hakkında soru sorabilirsin.');
                     fileInput.value = '';
                     uploaderInput.value = '';
                 } else {
-                    msg.textContent = `Error: ${data.message}`;
-                    msg.style.color = '#EF4444'; // Red for error
+                    msg.textContent = `Hata: ${data.message}`;
+                    msg.style.color = 'var(--danger)';
                 }
             } catch (err) {
-                msg.textContent = 'Network Error.';
-                msg.style.color = '#EF4444';
+                msg.textContent = 'Ağ hatası.';
+                msg.style.color = 'var(--danger)';
             } finally {
-                // Hide the message after a few seconds
-                setTimeout(() => {
-                    msg.textContent = '';
-                }, 5000);
+                setTimeout(() => { msg.textContent = ''; }, 5000);
             }
         });
     </script>

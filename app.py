@@ -209,7 +209,14 @@ def chat_stream():
         for chunk in bot.process_message_stream(user_message, user_id):
             yield chunk
 
-    return Response(generate(), mimetype='text/plain; charset=utf-8')
+    return Response(
+        generate(),
+        mimetype='text/plain; charset=utf-8',
+        headers={
+            'Cache-Control': 'no-cache, no-transform',
+            'X-Accel-Buffering': 'no',
+        },
+    )
 
 @app.route('/dashboard')
 def dashboard():

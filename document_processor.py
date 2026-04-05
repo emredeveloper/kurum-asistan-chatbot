@@ -14,7 +14,20 @@ import database
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+# Same switch as chat: embeddings follow the active LLM provider.
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "lmstudio").strip().lower()
+
+LM_STUDIO_BASE_URL = os.getenv("LM_STUDIO_BASE_URL", "http://localhost:1234/v1").rstrip("/")
+LM_STUDIO_API_KEY = os.getenv("LM_STUDIO_API_KEY", "")
+LM_STUDIO_EMBED_MODEL = os.getenv(
+    "LM_STUDIO_EMBED_MODEL", "text-embedding-nomic-embed-text-v1.5"
+)
+try:
+    _LM_STUDIO_EMBED_BATCH_SIZE = max(1, int(os.getenv("LM_STUDIO_EMBED_BATCH_SIZE", "64")))
+except ValueError:
+    _LM_STUDIO_EMBED_BATCH_SIZE = 64
+
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "qwen3-embedding:0.6b")
 VECTOR_STORE_PATH = os.path.join(os.getcwd(), "vector_store")
 METADATA_FILE = os.path.join(VECTOR_STORE_PATH, "metadata.json")
@@ -83,9 +96,51 @@ class DocumentProcessor:
         return chunks
 
     def _embed_many(self, texts):
+        """Route embeddings to Ollama or LM Studio based on `LLM_PROVIDER`."""
         if not texts:
             return []
+        if LLM_PROVIDER == "ollama":
+            return self._embed_many_ollama(texts)
+        return self._embed_many_lm_studio(texts)
 
+    def _embed_many_lm_studio(self, texts):
+        """OpenAI-compatible `POST .../v1/embeddings` (LM Studio)."""
+        url = f"{LM_STUDIO_BASE_URL}/embeddings"
+        headers = {"Content-Type": "application/json"}
+        if LM_STUDIO_API_KEY:
+            headers["Authorization"] = f"Bearer {LM_STUDIO_API_KEY}"
+
+        all_vectors: list[list[float]] = []
+        for start in range(0, len(texts), _LM_STUDIO_EMBED_BATCH_SIZE):
+            batch = texts[start : start + _LM_STUDIO_EMBED_BATCH_SIZE]
+            response = requests.post(
+                url,
+                headers=headers,
+                json={"model": LM_STUDIO_EMBED_MODEL, "input": batch},
+                timeout=120,
+            )
+            response.raise_for_status()
+            data = response.json()
+            items = data.get("data") or []
+            items.sort(key=lambda x: int(x.get("index", 0)))
+            for item in items:
+                vector = item.get("embedding")
+                if not vector:
+                    raise RuntimeError("LM Studio returned an empty embedding vector.")
+                all_vectors.append(vector)
+            if len(items) != len(batch):
+                raise RuntimeError(
+                    f"Embedding batch size mismatch: sent {len(batch)}, got {len(items)} vectors."
+                )
+
+        if len(all_vectors) != len(texts):
+            raise RuntimeError(
+                f"Embedding count mismatch: expected {len(texts)}, got {len(all_vectors)}."
+            )
+        return all_vectors
+
+    def _embed_many_ollama(self, texts):
+        """Ollama `/api/embed` batch, then `/api/embeddings` per text if needed."""
         try:
             response = requests.post(
                 f"{OLLAMA_BASE_URL}/api/embed",
@@ -95,12 +150,12 @@ class DocumentProcessor:
             response.raise_for_status()
             data = response.json()
             embeddings = data.get("embeddings") or []
-            if embeddings:
+            if embeddings and len(embeddings) == len(texts):
                 return embeddings
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Ollama batch embed failed, falling back per text: %s", e)
 
-        embeddings = []
+        out: list[list[float]] = []
         for text in texts:
             response = requests.post(
                 f"{OLLAMA_BASE_URL}/api/embeddings",
@@ -111,9 +166,9 @@ class DocumentProcessor:
             data = response.json()
             vector = data.get("embedding")
             if not vector:
-                raise RuntimeError("Embedding response is empty.")
-            embeddings.append(vector)
-        return embeddings
+                raise RuntimeError("Ollama returned an empty embedding vector.")
+            out.append(vector)
+        return out
 
     def _cosine_similarity(self, left, right):
         left_norm = math.sqrt(sum(x * x for x in left))

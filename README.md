@@ -1,6 +1,6 @@
 # Company Assistant Chatbot
 
-This Flask project brings together internal knowledge base lookups, support ticket creation, weather queries, and document question-answering in a single interface. The app works with an OpenAI-compatible API such as LM Studio and can also use Ollama for both chat and document embeddings.
+This Flask project brings together internal knowledge base lookups, support ticket creation, weather queries, and document question-answering in a single interface. The app works with an OpenAI-compatible API such as LM Studio for chat and embeddings, and can use Ollama for chat only when `LLM_PROVIDER=ollama`.
 
 ## Features
 
@@ -44,6 +44,7 @@ LM_STUDIO_BASE_URL=http://localhost:1234/v1
 LM_STUDIO_MODEL=google/gemma-4-e4b
 LM_STUDIO_API_KEY=
 LM_STUDIO_MODELS=google/gemma-4-e4b
+LM_STUDIO_EMBED_MODEL=text-embedding-nomic-embed-text-v1.5
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen3.5:9b
 OLLAMA_MODELS=qwen3.5:9b
@@ -65,7 +66,7 @@ Open `http://localhost:5000` in your browser.
 - If `RESET_ON_STARTUP=1`, chat history, support tickets, uploaded reports, and the vector store are cleared on startup.
 - By default, startup data deletion is disabled.
 - Set `LLM_PROVIDER=lmstudio` or `LLM_PROVIDER=ollama` to choose the active provider.
-- The document embedding flow uses Ollama through `OLLAMA_EMBED_MODEL`.
+- Document embeddings follow `LLM_PROVIDER`: with `lmstudio`, they use `LM_STUDIO_BASE_URL` and `LM_STUDIO_EMBED_MODEL` (`/v1/embeddings`). With `ollama`, they use `OLLAMA_BASE_URL` and `OLLAMA_EMBED_MODEL` (`/api/embed` or `/api/embeddings`). After switching provider or embedding model, rebuild the vector store (re-upload documents or `RESET_ON_STARTUP=1` once).
 - Tests use a separate SQLite database via the `TEST_DATABASE_URL` environment variable.
 
 ## Test

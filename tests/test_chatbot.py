@@ -25,7 +25,7 @@ def test_get_knowledge_base_info():
     """Tests fetching information from the knowledge base."""
     bot = CitizenAssistantBot()
     travel_info = bot.get_knowledge_base_info("travel policy information")
-    assert "prior approval" in travel_info
+    assert "prior approval" in travel_info.lower()
 
     leave_info = bot.get_knowledge_base_info("leave procedure?")
     assert "3 days" in leave_info
