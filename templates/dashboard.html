@@ -30,7 +30,7 @@
                 <div class="stat-value" id="statProcessedReports">-</div>
             </div>
             <div class="stat-card">
-                <div class="stat-title">Beklemede</div>
+                <div class="stat-title">Pending</div>
                 <div class="stat-value" id="statPendingReports">-</div>
             </div>
             <div class="stat-card">
@@ -147,7 +147,7 @@
                             <td>${ticket.department}</td>
                             <td class="description-cell">${ticket.description}</td>
                             <td><span class="status-badge status-${ticket.status.toLowerCase()}">${ticket.status}</span></td>
-                            <td>${new Date(ticket.created_at).toLocaleString('tr-TR')}</td>
+                            <td>${new Date(ticket.created_at).toLocaleString('en-US')}</td>
                         </tr>`;
                         supportTableBody.innerHTML += row;
                     });
@@ -165,7 +165,7 @@
                             <td>#${report.id}</td>
                             <td>${report.original_filename}</td>
                             <td>${report.uploader_name}</td>
-                            <td>${new Date(report.created_at).toLocaleString('tr-TR')}</td>
+                            <td>${new Date(report.created_at).toLocaleString('en-US')}</td>
                             <td><a href="/download_report/${report.stored_filename}" class="download-link">Download</a></td>
                             <td><button onclick="deleteReport(${report.id})" class="delete-btn">Delete</button></td>
                         </tr>`;
@@ -191,7 +191,7 @@
                         document.getElementById('statOpenTickets').textContent = open;
                     }
                 } catch (e) {
-                    print(e)
+                    console.error(e);
                 }
                  if (history.length === 0) {
                     historyTableBody.innerHTML = '<tr><td colspan="4">There is no query yet.</td></tr>';
@@ -201,17 +201,17 @@
                             <td>${item.type}</td>
                             <td class="description-cell">${item.user_message}</td>
                             <td class="description-cell">${item.bot_response}</td>
-                            <td>${new Date(item.timestamp).toLocaleString('tr-TR')}</td>
+                            <td>${new Date(item.timestamp).toLocaleString('en-US')}</td>
                         </tr>`;
                         historyTableBody.innerHTML += row;
                     });
                 }
 
             } catch (error) {
-                console.error("An error occur while tried to load dashboard data:", error);
-                document.getElementById('reportsTable').innerHTML = '<tr><td colspan="4">Data Couldnt Processed.<td></tr>';
-                document.getElementById('supportTicketsTable').innerHTML = '<tr><td colspan="5">Data Couldnt Loaded.</td></tr>';
-                document.getElementById('historyTable').innerHTML = '<tr><td colspan="4">Data/Query History Couldnt Loaded.</td></tr>';
+                console.error("An error occurred while loading dashboard data:", error);
+                document.getElementById('reportsTable').innerHTML = '<tr><td colspan="4">Failed to load data.</td></tr>';
+                document.getElementById('supportTicketsTable').innerHTML = '<tr><td colspan="5">Failed to load data.</td></tr>';
+                document.getElementById('historyTable').innerHTML = '<tr><td colspan="4">Failed to load query history.</td></tr>';
             }
         });
 
@@ -230,13 +230,13 @@
                     if (row) {
                         row.remove();
                     }
-                    alert('Rapor deleted successfully.');
+                    alert('Report deleted successfully.');
                 } else {
-                    alert(`Hata: ${result.message}`);
+                    alert(`Error: ${result.message}`);
                 }
             } catch (error) {
-                console.error("Report error occured:", error);
-                alert("An error occured in network connection.");
+                console.error("Report deletion error:", error);
+                alert("A network error occurred.");
             }
         }
 
@@ -256,7 +256,7 @@
                             alert('Error: ' + result.message);
                         }
                     } catch (error) {
-                        alert('A error occured in deleting process.');
+                        alert('An error occurred while deleting.');
                     }
                 }
             }

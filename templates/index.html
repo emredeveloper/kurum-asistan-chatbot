@@ -98,7 +98,8 @@
             messageDiv.className = `message ${sender}`;
             const avatar = sender === 'user' ? '👤' : '🤖';
             let renderedContent = content;
-            if (sender === 'bot' && typeof content === 'string' && content.includes('Found too many file. Choose the file that you want to use.')) {
+            const multiDocHint = 'Multiple documents found. Choose one by ID:';
+            if (sender === 'bot' && typeof content === 'string' && (content.includes(multiDocHint) || content.includes('Found too many file. Choose the file that you want to use.'))) {
                 const existingChoices = document.querySelectorAll('.message.bot .report-choice');
                 if (existingChoices.length > 0) {
                     const lastChoice = existingChoices[existingChoices.length - 1];
@@ -126,7 +127,7 @@
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
             // Attach events to document selection buttons
-            if (sender === 'bot' && content && content.includes('Found too many file. Choose the file that you want to use.')) {
+            if (sender === 'bot' && content && (content.includes('Multiple documents found. Choose one by ID:') || content.includes('Found too many file. Choose the file that you want to use.'))) {
                 bindReportOptionButtons();
             }
         }
@@ -136,7 +137,7 @@
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message bot';
             messageDiv.innerHTML = `
-                <div class="message-avatar">ğŸ¤–</div>
+                <div class="message-avatar">🤖</div>
                 <div class="message-content"></div>
             `;
             messagesContainer.appendChild(messageDiv);
@@ -193,7 +194,7 @@
                         const container = document.getElementById(blockId);
                         if (container) { container.outerHTML = html; bindReportOptionButtons(); }
                     } catch (e) {
-                        print(e)
+                        console.error(e);
                     }
                 }, 0);
             }
@@ -258,7 +259,7 @@
                 const response = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: JSON.stringify({ tool: 'belge_sec_ve_acikla', report_id: reportId, sorgu: userMsg }) })
+                    body: JSON.stringify({ message: JSON.stringify({ tool: 'choose_file_and_explain', report_id: reportId, query: userMsg }) })
                 });
                 const data = await response.json();
                 hideTypingIndicator();
@@ -392,7 +393,7 @@
             }
         });
 
-        // Tema toggle ve localStorage
+        // Theme toggle and localStorage
         document.addEventListener('DOMContentLoaded', function() {
             const themeBtn = document.getElementById('themeBtn');
             const body = document.body;
@@ -486,7 +487,7 @@
                     fileInput.value = '';
                     uploaderInput.value = '';
                 } else {
-                    msg.textContent = `Hata: ${data.message}`;
+                    msg.textContent = `Error: ${data.message}`;
                     msg.style.color = '#EF4444'; // Red for error
                 }
             } catch (err) {

@@ -11,21 +11,15 @@ import uuid
 from werkzeug.utils import secure_filename
 import datetime
 import shutil
-import database # Import the database module
-from document_processor import processor as doc_processor # Import the document processor
+import database
+from document_processor import processor as doc_processor
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-me')
-# Güvenlik ve yükleme sınırları
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB
 bot = None # Will be initialized in main after DB init
-
-# Initialize the database - This should be done carefully.
-# For testing, conftest.py will handle initializing the test DB.
-# For production/development, it should be called explicitly at startup.
-# database.init_db() # Removing from global scope.
 
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads', 'reports')
 ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx'}
@@ -43,27 +37,23 @@ RATE_LIMIT_MAX_REQUESTS = 30
 _rate_limit_store = {}
 
 def _rate_limit_key():
-    # Oturuma göre sınırlama; yoksa IP'ye göre
     if 'user_id' in session:
         return f"uid:{session['user_id']}"
     return f"ip:{request.remote_addr}"
 
 @app.before_request
 def apply_rate_limiting():
-    # Sadece belirli endpointler için uygulayalım
     if request.endpoint in {'chat', 'upload_report'}:
         key = _rate_limit_key()
         now = time.time()
         window_start = now - RATE_LIMIT_WINDOW_SECONDS
         timestamps = _rate_limit_store.get(key, [])
-        # Eski kayıtları temizle
         timestamps = [t for t in timestamps if t >= window_start]
         if len(timestamps) >= RATE_LIMIT_MAX_REQUESTS:
             return jsonify({'success': False, 'message': 'Too many requests. Please try again shortly.'}), 429
         timestamps.append(now)
         _rate_limit_store[key] = timestamps
 
-# Loglama (Rotating)
 if not os.path.exists('logs'):
     os.makedirs('logs')
 file_handler = RotatingFileHandler('logs/app.log', maxBytes=1024*1024, backupCount=5)
@@ -133,9 +123,7 @@ def get_provider_models():
     return LM_STUDIO_MODELS
 
 def get_lm_studio_models():
-    """LM Studio'nun /v1/models uç noktasından model listesini çeker.
-    Başarısız olursa boş liste döndürür ve UI env fallback'i kullanır.
-    """
+    """Fetch the model list from the LM Studio /v1/models endpoint."""
     try:
         url = f"{LM_STUDIO_BASE_URL}/models"
         headers = {"Content-Type": "application/json"}
@@ -144,20 +132,16 @@ def get_lm_studio_models():
         resp = requests.get(url, headers=headers, timeout=10)
         resp.raise_for_status()
         data = resp.json()
-        # OpenAI uyumlu: { object: 'list', data: [ { id: 'model' }, ... ] }
         items = data.get('data') or []
         ids = []
         for it in items:
             if isinstance(it, dict) and it.get('id'):
                 ids.append(it['id'])
-        # Bazı LM Studio sürümleri farklı alanlarla dönebilir; güvenli birleşim
-        # Sadece izin verilen model listesi
         allowed = LM_STUDIO_MODELS
         return [m for m in ids if m in allowed] or allowed
     except Exception as e:
-        # Sessiz fallback, loglayalım
         try:
-            app.logger.info(f"LM Studio modelleri alınamadı: {e}")
+            app.logger.info(f"Could not fetch LM Studio models: {e}")
         except Exception:
             pass
         return []
@@ -177,13 +161,10 @@ def get_ollama_models():
         return [m for m in ids if m in allowed] or allowed
     except Exception as e:
         try:
-            app.logger.info(f"Ollama modelleri alÄ±namadÄ±: {e}")
+            app.logger.info(f"Could not fetch Ollama models: {e}")
         except Exception:
             pass
         return []
-
-# Rapor meta verileri artık database'de tutulacak.
-# REPORTS = [] # Bu satırı kaldırıyoruz.
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -262,13 +243,11 @@ def set_model():
     user_id = session['user_id']
     data = request.get_json(silent=True) or {}
     model = data.get('model')
-    # Dinamik listeyi öncelikle LM Studio'dan çekip doğrulayalım
     provider_models = get_ollama_models() if LLM_PROVIDER == 'ollama' else get_lm_studio_models()
     allow_list = provider_models if provider_models else get_provider_models()
     if model and (not allow_list or model in allow_list):
         bot.set_user_model(user_id, model)
         return jsonify({'success': True, 'model': model})
-    # Boş veya geçersiz model ismi gelirse varsayılanı kullan
     bot.set_user_model(user_id, None)
     return jsonify({'success': True, 'model': None})
 
@@ -332,7 +311,6 @@ def upload_report():
     if file.filename == '':
         return jsonify({'success': False, 'message': 'No file selected.'}), 400
 
-    # MIME türü kontrolü
     if file and allowed_file(file.filename):
         if file.mimetype not in ALLOWED_MIME_TYPES:
             return jsonify({'success': False, 'message': 'Invalid file type.'}), 400
@@ -395,7 +373,7 @@ def delete_report_route(report_id):
 
         return jsonify({'success': True, 'message': 'Report deleted successfully.'})
     except Exception as e:
-        print(f"Error deleting report {report_id}: {e}") # Log for debugging
+        app.logger.exception(f"Error deleting report {report_id}")
         return jsonify({'success': False, 'message': f'An error occurred while deleting the report: {str(e)}'}), 500
 
 @app.route('/delete_all_reports', methods=['DELETE'])
@@ -403,68 +381,19 @@ def delete_all_reports():
     if 'user_id' not in session:
         return jsonify({'success': False, 'message': 'Unauthorized access.'}), 401
     try:
-        # 1. Tüm raporları veritabanından çek
         all_reports = database.get_reports()
-        # 2. Her bir raporun dosyasını sil
         for report in all_reports:
             file_path = os.path.join(app.config['UPLOAD_FOLDER'], report['stored_filename'])
             if os.path.exists(file_path):
                 os.remove(file_path)
-            # 3. FAISS vektörlerinden sil
             doc_processor.delete_document(report['id'])
-        # 4. Veritabanından tüm raporları sil
-        conn = database.get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM uploaded_reports')
-        conn.commit()
-        conn.close()
+        database.delete_all_reports()
         return jsonify({'success': True, 'message': 'All reports and related data were deleted.'})
     except Exception as e:
-        print(f"Error deleting all reports: {e}")
+        app.logger.exception('Error deleting all reports')
         return jsonify({'success': False, 'message': f'An error occurred while deleting all reports: {str(e)}'}), 500
 
 if __name__ == '__main__':
-    # Initialize the database when running the app directly
-    database.init_db()
-    bot = CitizenAssistantBot() # Initialize bot after DB is ready
-    # Optional: reset state on startup based on env var (reset first, then seed)
-    if os.environ.get('RESET_ON_STARTUP', '0') == '1':
-        try:
-            # Clear DB tables except users
-            database.reset_non_user_data()
-            # Purge uploads and vector_store
-            import shutil
-            uploads_dir = os.path.join(os.getcwd(), 'uploads', 'reports')
-            vs_dir = os.path.join(os.getcwd(), 'vector_store')
-            if os.path.exists(uploads_dir):
-                shutil.rmtree(uploads_dir, ignore_errors=True)
-            if os.path.exists(vs_dir):
-                # keep folder but clear files
-                for fname in os.listdir(vs_dir):
-                    try:
-                        os.remove(os.path.join(vs_dir, fname))
-                    except Exception:
-                        pass
-            # Recreate uploads dir
-            os.makedirs(uploads_dir, exist_ok=True)
-        except Exception as e:
-            app.logger.info(f"Startup reset failed: {e}")
-
-    # Seed default institution knowledge and default users AFTER reset
-    try:
-        database.seed_default_knowledge()
-    except Exception as e:
-        app.logger.info(f"Seed knowledge failed: {e}")
-    database.seed_default_users()
-    @app.errorhandler(RequestEntityTooLarge)
-    def handle_large_file(e):
-        return jsonify({'success': False, 'message': 'File size limit exceeded (20MB).'}), 413
-
-    @app.errorhandler(Exception)
-    def handle_unexpected_error(e):
-        if isinstance(e, HTTPException):
-            return e
-        app.logger.exception('Unexpected server error')
-        return jsonify({'success': False, 'message': 'Server error. Please try again later.'}), 500
-
+    reset = os.environ.get('RESET_ON_STARTUP', '0') == '1'
+    initialize_runtime(reset_state=reset)
     app.run(debug=True, host='0.0.0.0', port=5000)

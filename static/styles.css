@@ -1,4 +1,4 @@
-/* Genel Stil Resetleme ve Temel Ayarlar */
+/* Global Reset and Base Settings */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 :root {
     --primary-color: #4f46e5;
@@ -36,7 +36,7 @@ body.dark {
     color: var(--text-light);
 }
 
-/* --- Global Yerleşim --- */
+/* --- Global Layout --- */
 
 .app-layout {
     display: grid;
@@ -96,7 +96,7 @@ body.dark {
     color: #fff;
 }
 
-/* --- Sohbet Arayüzü Stilleri (index.html) --- */
+/* --- Chat Interface Styles (index.html) --- */
 
 .chat-container {
     display: flex;
@@ -536,7 +536,7 @@ body.dark {
 .report-choice-example { font-size: 0.9rem; color: #9ca3af; margin-top: 2px; }
 
 
-/* --- Dashboard Stilleri (dashboard.html) --- */
+/* --- Dashboard Styles (dashboard.html) --- */
 
 .dashboard-body {
     padding: 24px;
@@ -717,7 +717,7 @@ tbody tr:last-child td {
     color: #7f1d1d;
 }
 
-/* --- Dark Mode Stilleri --- */
+/* --- Dark Mode Styles --- */
 
 body.dark .chat-container,
 body.dark .grid-item,
@@ -863,7 +863,7 @@ body.dark .info-close:hover {
     background: rgba(156, 163, 175, 0.1);
 }
 
-/* Mobil Düzenlemeler */
+/* Mobile Adjustments */
 @media (max-width: 600px) {
     .app-layout { grid-template-columns: 1fr; padding: 0; }
     .sidebar { position: static; border-radius: 0; }

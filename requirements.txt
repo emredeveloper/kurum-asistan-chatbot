@@ -1,12 +1,12 @@
-Flask
-python-dotenv
-requests
-python-dateutil
-googletrans-py
+Flask>=3.0
+python-dotenv>=1.0
+requests>=2.31
+python-dateutil>=2.9
+googletrans-py>=4.0
 
-PyMuPDF
-pypdf
-python-docx
+PyMuPDF>=1.24
+pypdf>=4.0
+python-docx>=1.1
 
-pytest
-pytest-mock
+pytest>=8.0
+pytest-mock>=3.12

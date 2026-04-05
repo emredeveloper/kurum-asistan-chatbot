@@ -41,9 +41,9 @@ pip install -r requirements.txt
 FLASK_SECRET_KEY=change-me
 LLM_PROVIDER=lmstudio
 LM_STUDIO_BASE_URL=http://localhost:1234/v1
-LM_STUDIO_MODEL=google/gemma-3-12b
+LM_STUDIO_MODEL=google/gemma-4-e4b
 LM_STUDIO_API_KEY=
-LM_STUDIO_MODELS=google/gemma-3-12b
+LM_STUDIO_MODELS=google/gemma-4-e4b
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen3.5:9b
 OLLAMA_MODELS=qwen3.5:9b

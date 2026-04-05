@@ -1,4 +1,5 @@
 import json
+import logging
 import math
 import os
 import re
@@ -10,6 +11,8 @@ import pypdf
 import requests
 
 import database
+
+logger = logging.getLogger(__name__)
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "qwen3-embedding:0.6b")
@@ -33,7 +36,7 @@ class DocumentProcessor:
             with open(METADATA_FILE, "r", encoding="utf-8") as f:
                 self.metadata = {int(k): v for k, v in json.load(f).items()}
         except Exception as e:
-            print(f"Could not load metadata: {e}")
+            logger.warning("Could not load metadata: %s", e)
             self.metadata = {}
 
     def _save(self):
@@ -53,7 +56,7 @@ class DocumentProcessor:
             doc = fitz.open(file_path)
             return "".join(page.get_text() for page in doc)
         except Exception as e:
-            print(f"PDF fallback extraction failed: {e}")
+            logger.warning("PDF fallback extraction failed: %s", e)
             return ""
 
     def _extract_text_from_docx(self, file_path):
@@ -151,7 +154,7 @@ class DocumentProcessor:
             self._save()
             database.mark_report_as_processed(report_id)
         except Exception as e:
-            print(f"Error processing document {file_path}: {e}")
+            logger.exception("Error processing document %s", file_path)
 
     def search_in_documents(self, query: str, top_k=5):
         if not self.metadata:

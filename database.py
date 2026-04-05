@@ -4,22 +4,18 @@ import sqlite3
 from typing import Dict, List, Optional
 
 
-DATABASE_NAME = os.environ.get('TEST_DATABASE_URL', 'chatbot_data.db')
-
-
 def get_db_name():
-    return DATABASE_NAME
+    return os.environ.get('TEST_DATABASE_URL', 'chatbot_data.db')
 
 
 def get_db_connection():
-    db_name = os.environ.get('TEST_DATABASE_URL', 'chatbot_data.db')
-    conn = sqlite3.connect(db_name)
+    conn = sqlite3.connect(get_db_name())
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def init_db(db_name_override=None):
-    current_db_name = db_name_override or DATABASE_NAME
+    current_db_name = db_name_override or get_db_name()
     conn = sqlite3.connect(current_db_name)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -395,6 +391,14 @@ def delete_report(report_id: int):
     conn.commit()
     conn.close()
     return stored_filename
+
+
+def delete_all_reports():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM uploaded_reports')
+    conn.commit()
+    conn.close()
 
 
 def reset_non_user_data():
