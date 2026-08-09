@@ -54,7 +54,7 @@
                 <ul class="example-list">
                     <li>«Dosyayı özetle»</li>
                     <li>«İçeriği açıkla»</li>
-                    <li>«İstanbul hava durumu»</li>
+                    <li>«Yıllık izin prosedürü nedir?»</li>
                     <li>«IT için destek talebi aç»</li>
                 </ul>
             </section>
@@ -72,7 +72,6 @@
                     <h3>Merhaba</h3>
                     <p>Şunlarda yardımcı olabilirim:</p>
                     <ul>
-                        <li>Hava durumu</li>
                         <li>Destek talebi oluşturma</li>
                         <li>Kurum bilgi tabanı</li>
                         <li>PDF/Word belge yükleme ve soru yanıtlama</li>
@@ -165,25 +164,10 @@
             avatarEl.className = 'message-avatar';
             avatarEl.textContent = '🤖';
             const wrap = document.createElement('div');
-            wrap.className = 'message-content message-content--streaming bot-reply-wrap';
-            const stack = document.createElement('div');
-            stack.className = 'bot-reply-stack';
-            const details = document.createElement('details');
-            details.className = 'bot-thinking';
-            details.open = true;
-            const summary = document.createElement('summary');
-            summary.textContent = 'İç düşünce';
-            const pre = document.createElement('pre');
-            pre.className = 'bot-thinking__body';
-            details.appendChild(summary);
-            details.appendChild(pre);
+            wrap.className = 'message-content message-content--streaming';
             const answer = document.createElement('div');
             answer.className = 'bot-answer bot-answer--streaming';
-            stack.appendChild(details);
-            stack.appendChild(answer);
-            wrap.appendChild(stack);
-            details.hidden = true;
-            details.style.display = 'none';
+            wrap.appendChild(answer);
             messageDiv.appendChild(avatarEl);
             messageDiv.appendChild(wrap);
             messagesContainer.appendChild(messageDiv);
@@ -192,17 +176,8 @@
         }
 
         function updateStreamingBotUI(wrap, fullText) {
-            const parsed = parseAllThinking(fullText, { skipRedacted: true });
-            const details = wrap.querySelector('details.bot-thinking');
-            const pre = wrap.querySelector('.bot-thinking__body');
+            const parsed = parseAllThinking(fullText, { skipRedacted: false });
             const answer = wrap.querySelector('.bot-answer');
-            const has = !!(parsed.thinking && parsed.thinking.length);
-            details.hidden = !has;
-            details.style.display = has ? '' : 'none';
-            if (has) {
-                pre.textContent = parsed.thinking;
-                details.open = parsed.partialWire;
-            }
             answer.textContent = parsed.answer;
             scrollChatToBottom();
         }
@@ -233,12 +208,8 @@
             }
             const parsed = parseAllThinking(fullText, { skipRedacted: false });
             wrap.replaceChildren();
-            if (parsed.thinking) {
-                buildThinkingAnswerDom(wrap, parsed.thinking, parsed.answer, { markdownAnswer: true, detailsOpen: false });
-            } else {
-                wrap.classList.remove('bot-reply-wrap');
-                renderBotContent(wrap, parsed.answer);
-            }
+            wrap.classList.remove('bot-reply-wrap');
+            renderBotContent(wrap, parsed.answer);
             scrollChatToBottom();
         }
 
@@ -299,6 +270,7 @@
 
         const WIRE_THINK_START = '[[[THINK]]]';
         const WIRE_THINK_END = '[[[/THINK]]]';
+        const WIRE_FINAL = '[[[FINAL]]]';
 
         function splitWireThink(s) {
             const thinkParts = [];
@@ -385,6 +357,10 @@
             const w = splitWireThink(fullText);
             let thinking = (w.thinking || '').trim();
             let answer = w.answer;
+            if (answer.includes(WIRE_FINAL)) {
+                answer = answer.slice(answer.indexOf(WIRE_FINAL) + WIRE_FINAL.length);
+                thinking = '';
+            }
             if (!skipRedacted) {
                 const r = stripRedactedThink(answer);
                 answer = r.answer;
@@ -399,7 +375,25 @@
                     answer = ex.answer;
                 }
             }
+            answer = stripLeadingAnalysis(answer);
             return { thinking, answer, partialWire: w.partial };
+        }
+
+        function stripLeadingAnalysis(text) {
+            let value = String(text || '').trimStart();
+            const lower = value.toLowerCase();
+            const markers = ['the user said', 'the user asks', 'the user wants', 'i should', 'i need to', 'we need', 'thinking process:'];
+            if (!markers.some(m => lower.slice(0, 240).includes(m))) {
+                return value;
+            }
+            const finalLabels = ['Final answer:', 'Answer:', 'Cevap:'];
+            for (const label of finalLabels) {
+                const idx = value.toLowerCase().indexOf(label.toLowerCase());
+                if (idx !== -1) {
+                    return value.slice(idx + label.length).trimStart();
+                }
+            }
+            return '';
         }
 
         function buildThinkingAnswerDom(parent, thinkingText, answerText, opts) {
@@ -522,6 +516,7 @@
             input.value = '';
 
             showTypingIndicator();
+            const botWrap = createStreamingBotMessage();
 
             try {
                 const response = await fetch('/chat_stream', {
@@ -535,7 +530,6 @@
 
                 hideTypingIndicator();
 
-                const botWrap = createStreamingBotMessage();
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let fullText = '';
@@ -552,7 +546,7 @@
 
             } catch (error) {
                 hideTypingIndicator();
-                addMessage('bot', 'Üzgünüm, bir sorun oluştu. Tekrar deneyin.');
+                finalizeStreamingBotMessage(botWrap, 'Üzgünüm, bir sorun oluştu. Tekrar deneyin.');
             }
 
             input.disabled = false;

@@ -104,6 +104,19 @@
     </div>
 
     <script>
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function cssToken(value) {
+            return String(value ?? '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
+        }
+
         // Theme management
         document.addEventListener('DOMContentLoaded', function() {
             const themeBtn = document.getElementById('themeBtn');
@@ -142,12 +155,13 @@
                      supportTableBody.innerHTML = '<tr><td colspan="5">There is no support ticket to display.</td></tr>';
                 } else {
                     supportTickets.forEach(ticket => {
+                        const status = escapeHtml(ticket.status);
                         const row = `<tr>
-                            <td>${ticket.ticket_id.substring(0, 8)}</td>
-                            <td>${ticket.department}</td>
-                            <td class="description-cell">${ticket.description}</td>
-                            <td><span class="status-badge status-${ticket.status.toLowerCase()}">${ticket.status}</span></td>
-                            <td>${new Date(ticket.created_at).toLocaleString('en-US')}</td>
+                            <td>${escapeHtml(String(ticket.ticket_id || '').substring(0, 8))}</td>
+                            <td>${escapeHtml(ticket.department)}</td>
+                            <td class="description-cell">${escapeHtml(ticket.description)}</td>
+                            <td><span class="status-badge status-${cssToken(ticket.status)}">${status}</span></td>
+                            <td>${escapeHtml(new Date(ticket.created_at).toLocaleString('en-US'))}</td>
                         </tr>`;
                         supportTableBody.innerHTML += row;
                     });
@@ -158,16 +172,17 @@
                 const reportsTableBody = document.getElementById('reportsTable');
                 reportsTableBody.innerHTML = '';
                 if (reports.length === 0) {
-                    reportsTableBody.innerHTML = '<tr><td colspan="4">No report yet.<td></tr>';
+                    reportsTableBody.innerHTML = '<tr><td colspan="6">No report yet.</td></tr>';
                 } else {
                     reports.forEach(report => {
+                        const downloadName = encodeURIComponent(report.stored_filename || '');
                         const row = `<tr id="report-row-${report.id}">
-                            <td>#${report.id}</td>
-                            <td>${report.original_filename}</td>
-                            <td>${report.uploader_name}</td>
-                            <td>${new Date(report.created_at).toLocaleString('en-US')}</td>
-                            <td><a href="/download_report/${report.stored_filename}" class="download-link">Download</a></td>
-                            <td><button onclick="deleteReport(${report.id})" class="delete-btn">Delete</button></td>
+                            <td>#${escapeHtml(report.id)}</td>
+                            <td>${escapeHtml(report.original_filename)}</td>
+                            <td>${escapeHtml(report.uploader_name)}</td>
+                            <td>${escapeHtml(new Date(report.created_at).toLocaleString('en-US'))}</td>
+                            <td><a href="/download_report/${downloadName}" class="download-link">Download</a></td>
+                            <td><button onclick="deleteReport(${Number(report.id)})" class="delete-btn">Delete</button></td>
                         </tr>`;
                         reportsTableBody.innerHTML += row;
                     });
@@ -198,10 +213,10 @@
                 } else {
                     history.forEach(item => {
                         const row = `<tr>
-                            <td>${item.type}</td>
-                            <td class="description-cell">${item.user_message}</td>
-                            <td class="description-cell">${item.bot_response}</td>
-                            <td>${new Date(item.timestamp).toLocaleString('en-US')}</td>
+                            <td>${escapeHtml(item.type)}</td>
+                            <td class="description-cell">${escapeHtml(item.user_message)}</td>
+                            <td class="description-cell">${escapeHtml(item.bot_response)}</td>
+                            <td>${escapeHtml(new Date(item.timestamp).toLocaleString('en-US'))}</td>
                         </tr>`;
                         historyTableBody.innerHTML += row;
                     });
@@ -250,7 +265,7 @@
                         const result = await response.json();
                         if (result.success) {
                       
-                            document.getElementById('reportsTable').innerHTML = '<tr><td colspan="4">There is no report yet.<td></tr>';
+                            document.getElementById('reportsTable').innerHTML = '<tr><td colspan="6">There is no report yet.</td></tr>';
                             alert('All reports and related data has been deleted successfully.');
                         } else {
                             alert('Error: ' + result.message);
