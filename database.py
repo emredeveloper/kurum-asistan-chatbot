@@ -130,31 +130,37 @@ def seed_default_knowledge(conn: Optional[sqlite3.Connection] = None):
     cur = conn.cursor()
     defaults = [
         (
-            "travel policy, travel, trip, accommodation",
+            "travel policy, travel, trip, accommodation, "
+            "seyahat politikasi, seyahat, konaklama, gorevlendirme, yolluk",
             "Out-of-town business trips require prior approval and all expenses must be documented with invoices.",
         ),
         (
-            "leave procedure, leave, annual leave",
+            "leave procedure, leave, annual leave, "
+            "izin proseduru, izin, yillik izin, izin talebi, tatil",
             "Annual leave requests should be submitted to Human Resources at least 3 days in advance.",
         ),
         (
-            "overtime pay, overtime",
+            "overtime pay, overtime, "
+            "mesai ucreti, fazla mesai, mesai, ek mesai",
             "Overtime payments are reflected in payroll at the end of the relevant month.",
         ),
         (
-            "cafeteria, lunch, meal",
+            "cafeteria, lunch, meal, "
+            "yemekhane, ogle yemegi, yemek, kantin",
             "The cafeteria is open on weekdays between 12:00 and 14:00.",
         ),
     ]
 
     for keywords, answer in defaults:
-        cur.execute('SELECT id, answer FROM institution_knowledge WHERE keywords = ?', (keywords,))
+        # Match on the answer, not the keyword list: keywords get extended over time
+        # (e.g. adding Turkish synonyms) and matching on them would duplicate rows.
+        cur.execute('SELECT id, keywords FROM institution_knowledge WHERE answer = ?', (answer,))
         row = cur.fetchone()
         if row:
-            if row['answer'] != answer:
+            if row['keywords'] != keywords:
                 cur.execute(
-                    "UPDATE institution_knowledge SET answer = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    (answer, row['id']),
+                    "UPDATE institution_knowledge SET keywords = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (keywords, row['id']),
                 )
         else:
             cur.execute('INSERT INTO institution_knowledge (keywords, answer) VALUES (?, ?)', (keywords, answer))
@@ -165,10 +171,20 @@ def seed_default_knowledge(conn: Optional[sqlite3.Connection] = None):
         conn.close()
 
 
+_TR_FOLD = {
+    "ı": "i", "İ": "i", "ç": "c", "ş": "s", "ö": "o", "ü": "u", "ğ": "g",
+}
+
+
 def _normalize_text(text: str) -> str:
+    """Lowercase and fold Turkish diacritics so 'prosedürü' matches 'proseduru'."""
     if not isinstance(text, str):
         return ""
-    return text.lower().strip()
+    text = text.replace("İ", "i").replace("I", "i")
+    text = text.lower()
+    for src, dst in _TR_FOLD.items():
+        text = text.replace(src, dst)
+    return text.strip()
 
 
 def search_kb_answer(query: str) -> Optional[str]:
@@ -360,10 +376,42 @@ def get_report_by_id(report_id: int):
     return dict(report) if report else None
 
 
+def get_report_for_user(report_id: int, user_id: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM uploaded_reports WHERE id = ? AND user_id = ?",
+        (report_id, user_id),
+    )
+    report = cursor.fetchone()
+    conn.close()
+    return dict(report) if report else None
+
+
+def get_report_by_stored_filename_for_user(stored_filename: str, user_id: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM uploaded_reports WHERE stored_filename = ? AND user_id = ?",
+        (stored_filename, user_id),
+    )
+    report = cursor.fetchone()
+    conn.close()
+    return dict(report) if report else None
+
+
 def mark_report_as_processed(report_id: int):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("UPDATE uploaded_reports SET processed = 1 WHERE id = ?", (report_id,))
+    conn.commit()
+    conn.close()
+
+
+def mark_report_as_unprocessed(report_id: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE uploaded_reports SET processed = 0 WHERE id = ?", (report_id,))
     conn.commit()
     conn.close()
 
@@ -391,6 +439,36 @@ def delete_report(report_id: int):
     conn.commit()
     conn.close()
     return stored_filename
+
+
+def delete_report_for_user(report_id: int, user_id: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT stored_filename FROM uploaded_reports WHERE id = ? AND user_id = ?",
+        (report_id, user_id),
+    )
+    report = cursor.fetchone()
+    if not report:
+        conn.close()
+        return None
+
+    stored_filename = report['stored_filename']
+    cursor.execute(
+        "DELETE FROM uploaded_reports WHERE id = ? AND user_id = ?",
+        (report_id, user_id),
+    )
+    conn.commit()
+    conn.close()
+    return stored_filename
+
+
+def delete_reports_for_user(user_id: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM uploaded_reports WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
 
 
 def delete_all_reports():

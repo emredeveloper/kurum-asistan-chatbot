@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 import docx
-import fitz
+import pymupdf
 import pypdf
 import requests
 
@@ -66,7 +66,7 @@ class DocumentProcessor:
             return text
 
         try:
-            doc = fitz.open(file_path)
+            doc = pymupdf.open(file_path)
             return "".join(page.get_text() for page in doc)
         except Exception as e:
             logger.warning("PDF fallback extraction failed: %s", e)
@@ -102,6 +102,51 @@ class DocumentProcessor:
         if LLM_PROVIDER == "ollama":
             return self._embed_many_ollama(texts)
         return self._embed_many_lm_studio(texts)
+
+    def _embedding_model_name(self):
+        if LLM_PROVIDER == "ollama":
+            return OLLAMA_EMBED_MODEL
+        return LM_STUDIO_EMBED_MODEL
+
+    def _embedding_signature(self, vector):
+        return {
+            "provider": LLM_PROVIDER,
+            "model": self._embedding_model_name(),
+            "dimension": len(vector or []),
+        }
+
+    def _is_current_embedding(self, meta, expected_dimension: int | None = None):
+        embedding = meta.get("embedding") or []
+        dimension = int(meta.get("embedding_dimension") or 0)
+        if not dimension:
+            return False
+        if expected_dimension is not None and (dimension != expected_dimension or len(embedding) != expected_dimension):
+            return False
+        return (
+            meta.get("embedding_provider") == LLM_PROVIDER
+            and meta.get("embedding_model") == self._embedding_model_name()
+        )
+
+    def prune_incompatible_embeddings(self):
+        """Remove chunks produced by an old provider/model or without signature metadata."""
+        removed_report_ids = set()
+        ids_to_remove = []
+        for chunk_id, meta in self.metadata.items():
+            if not self._is_current_embedding(meta):
+                ids_to_remove.append(chunk_id)
+                if meta.get("report_id") is not None:
+                    removed_report_ids.add(meta.get("report_id"))
+
+        for chunk_id in ids_to_remove:
+            self.metadata.pop(chunk_id, None)
+        if ids_to_remove:
+            self._save()
+            for report_id in removed_report_ids:
+                database.mark_report_as_unprocessed(report_id)
+        return {
+            "removed_chunks": len(ids_to_remove),
+            "affected_report_ids": sorted(removed_report_ids),
+        }
 
     def _embed_many_lm_studio(self, texts):
         """OpenAI-compatible `POST .../v1/embeddings` (LM Studio)."""
@@ -171,6 +216,10 @@ class DocumentProcessor:
         return out
 
     def _cosine_similarity(self, left, right):
+        if len(left or []) != len(right or []):
+            raise ValueError(
+                f"Embedding dimension mismatch: query={len(left or [])}, stored={len(right or [])}"
+            )
         left_norm = math.sqrt(sum(x * x for x in left))
         right_norm = math.sqrt(sum(x * x for x in right))
         if left_norm == 0 or right_norm == 0:
@@ -189,36 +238,54 @@ class DocumentProcessor:
             elif file_path.suffix.lower() in [".doc", ".docx"]:
                 text = self._extract_text_from_docx(file_path)
             else:
-                return
+                return False
 
             chunks = self._split_text(text)
             if not chunks:
-                return
+                return False
 
             embeddings = self._embed_many(chunks)
+            # A report_id is reused whenever the SQLite counter restarts (fresh DB,
+            # manual delete). Drop any stale chunks carrying this id first, otherwise
+            # the new document would be mixed with an unrelated older one.
+            stale = self._discard_document(report_id)
+            if stale:
+                logger.info("Removed %s stale chunk(s) for reused report_id=%s", stale, report_id)
             start_id = max(self.metadata.keys()) + 1 if self.metadata else 1
 
             for index, chunk in enumerate(chunks):
                 chunk_id = start_id + index
+                signature = self._embedding_signature(embeddings[index])
                 self.metadata[chunk_id] = {
                     "report_id": report_id,
                     "text": chunk,
                     "embedding": embeddings[index],
+                    "embedding_provider": signature["provider"],
+                    "embedding_model": signature["model"],
+                    "embedding_dimension": signature["dimension"],
                 }
 
             self._save()
             database.mark_report_as_processed(report_id)
+            return True
         except Exception as e:
             logger.exception("Error processing document %s", file_path)
+            return False
 
-    def search_in_documents(self, query: str, top_k=5):
+    def search_in_documents(self, query: str, top_k=5, report_id=None):
+        """Search stored chunks. When `report_id` is given, only that document is considered."""
         if not self.metadata:
             return []
 
+        def _belongs(meta):
+            return report_id is None or str(meta.get("report_id")) == str(report_id)
+
         if not (query or "").strip():
             results = []
-            for chunk_id in sorted(self.metadata.keys())[:top_k]:
+            for chunk_id in sorted(self.metadata.keys()):
                 meta = self.metadata.get(chunk_id, {})
+                if not self._is_current_embedding(meta) or not _belongs(meta):
+                    continue
                 results.append(
                     {
                         "text": meta.get("text", ""),
@@ -226,13 +293,29 @@ class DocumentProcessor:
                         "score": None,
                     }
                 )
+                if len(results) >= top_k:
+                    break
             return results
 
         query_vector = self._embed_many([query])[0]
+        query_dimension = len(query_vector or [])
         scored = []
         for meta in self.metadata.values():
+            if not _belongs(meta):
+                continue
             embedding = meta.get("embedding")
             if not embedding:
+                continue
+            stored_dimension = int(meta.get("embedding_dimension") or len(embedding))
+            if not self._is_current_embedding(meta, expected_dimension=query_dimension):
+                logger.warning(
+                    "Skipping document chunk with incompatible embedding signature: report_id=%s provider=%s model=%s stored_dim=%s query_dim=%s",
+                    meta.get("report_id"),
+                    meta.get("embedding_provider") or "legacy",
+                    meta.get("embedding_model") or "legacy",
+                    stored_dimension,
+                    query_dimension,
+                )
                 continue
             scored.append(
                 {
@@ -245,14 +328,53 @@ class DocumentProcessor:
         scored.sort(key=lambda item: item["score"], reverse=True)
         return scored[:top_k]
 
-    def delete_document(self, report_id_to_delete):
+    def prune_orphan_chunks(self):
+        """Drop chunks whose report no longer exists in the database.
+
+        The vector store and SQLite keep their own state, so a report deleted
+        outside the app (or a database that was reset) leaves chunks behind that
+        can later collide with a reused report_id.
+        """
+        try:
+            known_ids = {str(r["id"]) for r in database.get_reports()}
+        except Exception as e:
+            logger.warning("Could not read reports for orphan pruning: %s", e)
+            return {"removed_chunks": 0, "orphan_report_ids": []}
+
+        orphan_ids = set()
+        ids_to_remove = []
+        for chunk_id, meta in self.metadata.items():
+            report_id = meta.get("report_id")
+            if str(report_id) not in known_ids:
+                ids_to_remove.append(chunk_id)
+                orphan_ids.add(report_id)
+
+        for chunk_id in ids_to_remove:
+            self.metadata.pop(chunk_id, None)
+        if ids_to_remove:
+            self._save()
+            logger.info(
+                "Pruned %s orphan chunk(s) from report_id(s) %s",
+                len(ids_to_remove), sorted(map(str, orphan_ids)),
+            )
+        return {
+            "removed_chunks": len(ids_to_remove),
+            "orphan_report_ids": sorted(map(str, orphan_ids)),
+        }
+
+    def _discard_document(self, report_id_to_delete) -> int:
+        """Drop a document's chunks in memory. Returns how many were removed."""
         ids_to_remove = [
             chunk_id
             for chunk_id, meta in self.metadata.items()
-            if meta.get("report_id") == report_id_to_delete
+            if str(meta.get("report_id")) == str(report_id_to_delete)
         ]
         for chunk_id in ids_to_remove:
             self.metadata.pop(chunk_id, None)
+        return len(ids_to_remove)
+
+    def delete_document(self, report_id_to_delete):
+        self._discard_document(report_id_to_delete)
         self._save()
 
 

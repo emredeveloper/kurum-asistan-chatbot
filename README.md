@@ -1,12 +1,11 @@
 # Company Assistant Chatbot
 
-This Flask project brings together internal knowledge base lookups, support ticket creation, weather queries, and document question-answering in a single interface. The app works with an OpenAI-compatible API such as LM Studio for chat and embeddings, and can use Ollama for chat only when `LLM_PROVIDER=ollama`.
+This Flask project brings together internal knowledge base lookups, support ticket creation, and document question-answering in a single interface. The app works with an OpenAI-compatible API such as LM Studio for chat and embeddings, and can use Ollama for chat only when `LLM_PROVIDER=ollama`.
 
 ## Features
 
 - Answer questions from the internal knowledge base
 - Create support tickets and track them on the dashboard
-- Fetch weather information
 - Upload, summarize, and search PDF and DOCX files
 - Review chat history, reports, and tickets from the dashboard
 - Choose the active model per user session
@@ -49,7 +48,6 @@ OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen3.5:9b
 OLLAMA_MODELS=qwen3.5:9b
 OLLAMA_EMBED_MODEL=qwen3-embedding:0.6b
-OPENWEATHER_API_KEY=your_openweather_key
 RESET_ON_STARTUP=0
 ```
 

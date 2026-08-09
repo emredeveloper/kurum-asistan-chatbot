@@ -6,7 +6,37 @@ import importlib
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from chatbot import CitizenAssistantBot
+from chatbot import CitizenAssistantBot, _has_date_intent
+
+
+@pytest.mark.parametrize("message", [
+    "bugun gunlerden ne?",
+    "yarin hangi gun",
+    "gelecek hafta toplanti var mi",
+    "12/03/2025 hangi gune denk geliyor",
+    "15 mart tarihinde ne oldu",
+    "2025 yilinda kac izin kullandim",
+    "bu ay kac gun var",
+    "what day is it today",
+])
+def test_has_date_intent_accepts_date_questions(message):
+    assert _has_date_intent(message) is True
+
+
+@pytest.mark.parametrize("message", [
+    # dateutil's fuzzy parser reads "2 arti 2" as a date and would hijack the
+    # message before it ever reaches the LLM.
+    "2 arti 2 kactir? sadece sayiyi yaz.",
+    "5 kisilik toplanti odasi var mi",
+    "100 lira harcadim",
+    "kurumsal e-posta nasil yazilir",
+    # Words that merely contain a keyword must not trigger.
+    "ayrica 2 konu daha var",
+    "ayni anda 3 islem",
+    "maybe 2 options",
+])
+def test_has_date_intent_rejects_unrelated_messages(message):
+    assert _has_date_intent(message) is False
 
 
 def test_normalize_dept():
@@ -40,29 +70,6 @@ def test_get_knowledge_base_info():
 
     cafeteria_info = bot.get_knowledge_base_info("cafeteria hours")
     assert "12:00" in cafeteria_info
-
-
-def test_get_weather_city_not_found_handling(mocker):
-    """Tests the bot's handling of a 'city not found' response from OpenWeatherMap API."""
-    bot = CitizenAssistantBot()
-    mock_response = mocker.Mock()
-    mock_response.json.return_value = {"cod": "404", "message": "city not found"}
-    mock_response.status_code = 404
-
-    mocker.patch('requests.get', return_value=mock_response)
-
-    weather_response = bot.get_weather("NonExistentCity")
-    assert weather_response == "Which city would you like the weather for?"
-
-    mock_success_response = mocker.Mock()
-    mock_success_response.json.return_value = {
-        "cod": 200,
-        "weather": [{"description": "clear sky"}],
-        "main": {"temp": 25}
-    }
-    mocker.patch('requests.get', return_value=mock_success_response)
-    weather_success = bot.get_weather("Ankara")
-    assert "Weather in Ankara: clear sky, temperature: 25°C" == weather_success
 
 
 def test_support_ticket_flow_no_llm(mocker):
@@ -168,6 +175,17 @@ def test_ollama_provider_request(mocker):
     assert result == "ollama reply"
     assert post_mock.call_args.kwargs["json"]["model"] == chatbot_module.OLLAMA_MODEL
     assert post_mock.call_args.args[0].endswith("/api/generate")
+
+
+def test_llm_connection_error_returns_user_safe_message(mocker):
+    import chatbot as chatbot_module
+    bot = chatbot_module.CitizenAssistantBot()
+    mocker.patch('requests.post', side_effect=RuntimeError("secret localhost detail"))
+
+    result = bot.ollama_chat("hi")
+
+    assert result == chatbot_module.LLM_UNAVAILABLE_MESSAGE
+    assert "secret localhost detail" not in result
 
 
 def test_explicit_document_tool_request_bypasses_general_llm(mocker):

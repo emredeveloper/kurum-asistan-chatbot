@@ -106,6 +106,19 @@ def initialize_runtime(reset_state=False):
     except Exception as e:
         app.logger.info(f"Seed knowledge failed: {e}")
     database.seed_default_users()
+
+    # Chunks left behind by reports deleted outside the app would otherwise collide
+    # with a reused report_id and leak one document's content into another's answers.
+    try:
+        pruned = doc_processor.prune_orphan_chunks()
+        if pruned['removed_chunks']:
+            app.logger.info(
+                f"Pruned {pruned['removed_chunks']} orphan chunk(s) from vector store "
+                f"(report_id: {pruned['orphan_report_ids']})"
+            )
+    except Exception as e:
+        app.logger.info(f"Orphan chunk pruning failed: {e}")
+
     bot = CitizenAssistantBot()
 
 
@@ -177,7 +190,7 @@ def index():
 def welcome_message():
     if 'messages' not in session:
         session['messages'] = []
-    return jsonify({'response': 'Hello! I am the Company Assistant. I can help you with the following:<br>- Current weather information<br>- Support ticket creation<br>- Questions about our internal knowledge base<br>- Upload Word/PDF documents and answer questions about their contents'})
+    return jsonify({'response': 'Hello! I am the Company Assistant. I can help you with the following:<br>- Support ticket creation<br>- Questions about our internal knowledge base<br>- Upload Word/PDF documents and answer questions about their contents'})
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -334,7 +347,15 @@ def upload_report():
 
             # Process the document for RAG. In a real-world app, this should be
             # offloaded to a background worker (e.g., Celery, RQ).
-            doc_processor.process_and_embed_document(file_path, report_id)
+            processed = doc_processor.process_and_embed_document(file_path, report_id)
+            if not processed:
+                database.delete_report(report_id)
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                return jsonify({
+                    'success': False,
+                    'message': 'The report was uploaded, but document processing failed. Check the embedding service and try again.'
+                }), 502
 
             return jsonify({'success': True, 'message': 'Report uploaded and processed successfully.'})
         except Exception as e:
@@ -345,14 +366,21 @@ def upload_report():
 
 @app.route('/reports', methods=['GET'])
 def get_reports():
-    # Fetches all reports by default, as per database.get_reports() when user_id is None.
-    # If user-specific reports were needed here, user_id from session would be passed.
-    all_reports = database.get_reports()
-    return jsonify(all_reports)
+    if 'user_id' not in session:
+        return jsonify([])
+    return jsonify(database.get_reports(session['user_id']))
 
 @app.route('/download_report/<filename>', methods=['GET'])
 def download_report(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename, as_attachment=True)
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized access.'}), 401
+    safe_filename = secure_filename(filename)
+    if safe_filename != filename:
+        return jsonify({'success': False, 'message': 'Report not found.'}), 404
+    report = database.get_report_by_stored_filename_for_user(safe_filename, session['user_id'])
+    if not report:
+        return jsonify({'success': False, 'message': 'Report not found.'}), 404
+    return send_from_directory(app.config['UPLOAD_FOLDER'], safe_filename, as_attachment=True)
 
 @app.route('/delete_report/<int:report_id>', methods=['DELETE'])
 def delete_report_route(report_id):
@@ -360,15 +388,13 @@ def delete_report_route(report_id):
         return jsonify({'success': False, 'message': 'Unauthorized access.'}), 401
 
     try:
-        # Get the filename before deleting the DB record to ensure we can delete the file
-        report_details = database.get_report_by_id(report_id)
+        report_details = database.get_report_for_user(report_id, session['user_id'])
         if not report_details:
              return jsonify({'success': False, 'message': 'Report not found.'}), 404
 
         stored_filename = report_details['stored_filename']
-        
-        # Delete from database
-        database.delete_report(report_id)
+
+        database.delete_report_for_user(report_id, session['user_id'])
 
         # Delete the file from the filesystem
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], stored_filename)
@@ -388,14 +414,15 @@ def delete_all_reports():
     if 'user_id' not in session:
         return jsonify({'success': False, 'message': 'Unauthorized access.'}), 401
     try:
-        all_reports = database.get_reports()
+        user_id = session['user_id']
+        all_reports = database.get_reports(user_id)
         for report in all_reports:
             file_path = os.path.join(app.config['UPLOAD_FOLDER'], report['stored_filename'])
             if os.path.exists(file_path):
                 os.remove(file_path)
             doc_processor.delete_document(report['id'])
-        database.delete_all_reports()
-        return jsonify({'success': True, 'message': 'All reports and related data were deleted.'})
+        database.delete_reports_for_user(user_id)
+        return jsonify({'success': True, 'message': 'Your reports and related data were deleted.'})
     except Exception as e:
         app.logger.exception('Error deleting all reports')
         return jsonify({'success': False, 'message': f'An error occurred while deleting all reports: {str(e)}'}), 500

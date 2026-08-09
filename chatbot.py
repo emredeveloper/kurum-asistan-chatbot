@@ -1,5 +1,6 @@
 import datetime
 import json
+import logging
 import os
 import re
 import uuid
@@ -15,6 +16,8 @@ from document_processor import processor as doc_processor
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "lmstudio").strip().lower()
 
 LM_STUDIO_BASE_URL = os.getenv("LM_STUDIO_BASE_URL", "http://localhost:1234/v1")
@@ -22,16 +25,32 @@ LM_STUDIO_MODEL = os.getenv("LM_STUDIO_MODEL", "google/gemma-4-e4b")
 LM_STUDIO_API_KEY = os.getenv("LM_STUDIO_API_KEY", "")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
-OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "YOUR_API_KEY_HERE")
 
 GENERAL_ASSISTANT_SYSTEM = """You are a helpful workplace assistant. Answer clearly and accurately.
 Use markdown when it helps (headings, short lists, code blocks). If you do not know something, say so.
 Reply in the same language the user writes in (e.g. Turkish → Turkish) unless they ask otherwise.
-Stay on topic; use prior turns in this chat only when they are relevant."""
+Stay on topic; use prior turns in this chat only when they are relevant.
+Do not output chain-of-thought, hidden reasoning, thinking notes, or analysis. Return only the final answer."""
 
 # Wire markers consumed by templates/index.html (collapsible "thinking" UI)
 WIRE_THINK_START = "[[[THINK]]]"
 WIRE_THINK_END = "[[[/THINK]]]"
+WIRE_FINAL = "[[[FINAL]]]"
+LLM_UNAVAILABLE_MESSAGE = (
+    "The language model service is unavailable right now. Please check the configured "
+    "LLM provider and try again."
+)
+LLM_DISABLE_THINKING = os.getenv("LLM_DISABLE_THINKING", "1").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
+FINAL_ONLY_INSTRUCTION = (
+    "Return only the final answer to the user. Do not describe what the user said, "
+    "what you should do, your plan, your analysis, or hidden reasoning. Start the visible "
+    f"answer with {WIRE_FINAL} followed immediately by the final answer."
+)
 
 
 def _coerce_reasoning_to_str(value) -> str:
@@ -79,9 +98,130 @@ def _reasoning_from_mapping(obj: dict | None) -> str:
 def _lm_reply_with_thinking(reason: str, content: str) -> str:
     reason = (reason or "").strip()
     content = (content or "").strip()
-    if reason:
+    if reason and not LLM_DISABLE_THINKING:
         return f"{WIRE_THINK_START}{reason}{WIRE_THINK_END}{content}"
     return content
+
+
+def _apply_thinking_off(payload: dict) -> dict:
+    if not LLM_DISABLE_THINKING:
+        return payload
+    payload.setdefault("reasoning_effort", "none")
+    payload.setdefault("reasoning", {"effort": "none"})
+    payload.setdefault("include_reasoning", False)
+    return payload
+
+
+def _apply_ollama_thinking_off(payload: dict) -> dict:
+    if LLM_DISABLE_THINKING:
+        payload["think"] = False
+    return payload
+
+
+def _final_only_user_prompt(user_prompt: str) -> str:
+    if not LLM_DISABLE_THINKING:
+        return user_prompt
+    return f"{FINAL_ONLY_INSTRUCTION}\n\nUser message:\n{user_prompt}"
+
+
+def _strip_leading_analysis(text: str) -> str:
+    if not LLM_DISABLE_THINKING or not isinstance(text, str):
+        return text
+    stripped = text.strip()
+    if WIRE_FINAL in stripped:
+        return stripped.split(WIRE_FINAL, 1)[1].strip()
+    lower = stripped.lower()
+    analysis_markers = (
+        "the user said",
+        "the user asks",
+        "the user wants",
+        "i should",
+        "i need to",
+        "we need",
+        "thinking process:",
+    )
+    if not any(marker in lower[:240] for marker in analysis_markers):
+        return text
+
+    # Prefer common final-answer boundaries after a short leaked analysis preface.
+    boundary_markers = [
+        "\n\nFinal answer:",
+        "\nFinal answer:",
+        "\n\nAnswer:",
+        "\nAnswer:",
+        "\n\nCevap:",
+        "\nCevap:",
+    ]
+    for marker in boundary_markers:
+        idx = stripped.lower().find(marker.lower())
+        if idx != -1:
+            return stripped[idx + len(marker):].strip()
+
+    sentences = re.split(r"(?<=[.!?])\s+", stripped, maxsplit=4)
+    if len(sentences) > 1:
+        for idx, sentence in enumerate(sentences[:-1]):
+            s = sentence.lower()
+            if any(marker in s for marker in analysis_markers):
+                candidate = " ".join(sentences[idx + 1:]).strip()
+                if candidate:
+                    return candidate
+    return text
+
+
+# Generic date vocabulary. Turkish is agglutinative, so these accept a suffix
+# ("gunlerden", "tarihi", "haftaya"). "ay" (month) is deliberately absent: with a
+# suffix wildcard it would swallow "ayrica", "ayni", "ayar".
+_DATE_INTENT_STEMS = (
+    "date", "day", "week", "year", "weekday", "calendar",
+    "tarih", "gün", "gun", "hafta", "yıl", "yil", "takvim",
+)
+
+# Month and weekday names match whole-word only. Allowing suffixes here would make
+# "may" fire on "maybe" and "mart" on "martı".
+_DATE_INTENT_EXACT = (
+    "month", "ay", "aylar",
+    "pazartesi", "salı", "sali", "çarşamba", "carsamba", "perşembe", "persembe",
+    "cuma", "cumartesi", "pazar",
+    "ocak", "şubat", "subat", "mart", "nisan", "mayıs", "mayis", "haziran",
+    "temmuz", "ağustos", "agustos", "eylül", "eylul", "ekim", "kasım", "kasim",
+    "aralık", "aralik",
+    "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+)
+
+# Explicit calendar formats: 12/03/2025, 2025-03-12, 12.03.2025
+_DATE_PATTERN = re.compile(r"\b\d{1,4}[./-]\d{1,2}([./-]\d{1,4})?\b")
+
+# Word-boundary matching throughout: plain substring checks fire on innocent words
+# that merely contain a keyword ("ay" inside "sayiyi"), which is the over-trigger
+# this guard exists to prevent.
+_DATE_WORD_PATTERN = re.compile(
+    r"\b(?:"
+    + "|".join(re.escape(w) for w in _DATE_INTENT_STEMS)
+    + r")\w*\b|\b(?:"
+    + "|".join(re.escape(w) for w in _DATE_INTENT_EXACT)
+    + r")\b"
+)
+
+
+def _has_date_intent(lower_msg: str) -> bool:
+    """True when the message plausibly asks about a date.
+
+    Guards `dateutil`'s fuzzy parser, which otherwise turns any stray number
+    ("2 + 2 = ?") into a date and hijacks the message.
+    """
+    if _DATE_PATTERN.search(lower_msg):
+        return True
+    return bool(_DATE_WORD_PATTERN.search(lower_msg))
+
+
+def _is_llm_error(response: str) -> bool:
+    return isinstance(response, str) and (
+        response.startswith("LLM error:")
+        or response.strip() == "No response received from LLM."
+        or response.strip() == LLM_UNAVAILABLE_MESSAGE
+    )
 
 
 def get_default_model():
@@ -154,7 +294,7 @@ class CitizenAssistantBot:
         for um, br in pairs:
             messages.append({"role": "user", "content": um})
             messages.append({"role": "assistant", "content": br})
-        messages.append({"role": "user", "content": user_prompt})
+        messages.append({"role": "user", "content": _final_only_user_prompt(user_prompt)})
         return messages
 
     def _ollama_prompt_with_conversation(self, user_prompt: str, user_id: str) -> str:
@@ -173,12 +313,12 @@ class CitizenAssistantBot:
             blocks.append(f"User: {um}\nAssistant: {br}")
         blocks = blocks[-10:]
         if not blocks:
-            return user_prompt
+            return _final_only_user_prompt(user_prompt)
         prior = "\n\n".join(blocks)
         return (
             f"{GENERAL_ASSISTANT_SYSTEM}\n\n"
             f"Conversation so far:\n{prior}\n\n"
-            f"User: {user_prompt}\nAssistant:"
+            f"User: {_final_only_user_prompt(user_prompt)}\nAssistant:"
         )
 
     def ollama_chat(self, prompt: str, model: str | None = None, conversation_user_id: str | None = None) -> str:
@@ -198,19 +338,19 @@ class CitizenAssistantBot:
                 response = requests.post(
                     f"{OLLAMA_BASE_URL}/api/generate",
                     headers={"Content-Type": "application/json"},
-                    json={
+                    json=_apply_ollama_thinking_off({
                         "model": selected_model,
                         "prompt": full_prompt,
                         "stream": False,
                         "options": {"temperature": 0.2}
-                    },
+                    }),
                     timeout=120
                 )
                 response.raise_for_status()
                 data = response.json()
                 if data.get("response"):
-                    return data["response"].strip()
-                return "No response received from LLM."
+                    return _strip_leading_analysis(data["response"].strip())
+                return LLM_UNAVAILABLE_MESSAGE
 
             url = f"{LM_STUDIO_BASE_URL}/chat/completions"
             headers = {"Content-Type": "application/json"}
@@ -220,13 +360,14 @@ class CitizenAssistantBot:
             if conversation_user_id:
                 msg_list = self._messages_for_general_chat(prompt, conversation_user_id)
             else:
-                msg_list = [{"role": "user", "content": prompt}]
+                msg_list = [{"role": "user", "content": _final_only_user_prompt(prompt)}]
             payload = {
                 "model": selected_model,
                 "messages": msg_list,
                 "temperature": 0.2,
                 "stream": False
             }
+            _apply_thinking_off(payload)
             response = requests.post(url, headers=headers, json=payload, timeout=120)
             response.raise_for_status()
             data = response.json()
@@ -238,15 +379,16 @@ class CitizenAssistantBot:
                 reason = _reasoning_from_mapping(msg)
                 merged = _lm_reply_with_thinking(reason, content)
                 if merged:
-                    return merged.strip()
+                    return _strip_leading_analysis(merged.strip())
 
             # Fallback for older /v1/completions style responses
             if choices and choices[0].get("text"):
-                return choices[0]["text"].strip()
+                return _strip_leading_analysis(choices[0]["text"].strip())
 
-            return "No response received from LLM."
-        except Exception as e:
-            return f"LLM error: {e}"
+            return LLM_UNAVAILABLE_MESSAGE
+        except Exception:
+            logger.exception("LLM request failed")
+            return LLM_UNAVAILABLE_MESSAGE
 
     def ollama_chat_stream(self, prompt: str, model: str | None = None, conversation_user_id: str | None = None) -> Iterator[str]:
         selected_model = model or get_default_model()
@@ -261,12 +403,12 @@ class CitizenAssistantBot:
                 with requests.post(
                     f"{OLLAMA_BASE_URL}/api/generate",
                     headers={"Content-Type": "application/json"},
-                    json={
+                    json=_apply_ollama_thinking_off({
                         "model": selected_model,
                         "prompt": full_prompt,
                         "stream": True,
                         "options": {"temperature": 0.2}
-                    },
+                    }),
                     timeout=120,
                     stream=True
                 ) as response:
@@ -283,7 +425,7 @@ class CitizenAssistantBot:
                         thinking = _coerce_reasoning_to_str(
                             data.get("thinking") or data.get("thought")
                         )
-                        if thinking.strip():
+                        if thinking.strip() and not LLM_DISABLE_THINKING:
                             yield f"{WIRE_THINK_START}{thinking}{WIRE_THINK_END}"
                         if chunk:
                             yield chunk
@@ -301,12 +443,12 @@ class CitizenAssistantBot:
             with requests.post(
                 f"{LM_STUDIO_BASE_URL}/chat/completions",
                 headers=headers,
-                json={
+                json=_apply_thinking_off({
                     "model": selected_model,
                     "messages": stream_messages,
                     "temperature": 0.2,
                     "stream": True
-                },
+                }),
                 timeout=120,
                 stream=True
             ) as response:
@@ -330,27 +472,13 @@ class CitizenAssistantBot:
                     if not think:
                         think = _reasoning_from_mapping(data)
                     content = d.get("content") or ""
-                    if think:
+                    if think and not LLM_DISABLE_THINKING:
                         yield f"{WIRE_THINK_START}{think}{WIRE_THINK_END}"
                     if content:
                         yield content
-        except Exception as e:
-            yield f"\nLLM error: {e}"
-
-    def get_weather(self, city: str) -> str:
-        try:
-            url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={OPENWEATHER_API_KEY}&lang=en&units=metric"
-            response = requests.get(url)
-            data = response.json()
-            if data.get("cod") != 200:
-                if data.get("message", "") == "city not found":
-                    return "Which city would you like the weather for?"
-                return f"Could not retrieve weather: {data.get('message', '')}"
-            desc = data['weather'][0]['description']
-            temp = data['main']['temp']
-            return f"Weather in {city}: {desc}, temperature: {temp}°C"
-        except Exception as e:
-            return f"Weather error: {e}"
+        except Exception:
+            logger.exception("Streaming LLM request failed")
+            yield LLM_UNAVAILABLE_MESSAGE
 
     def normalize_dept(self, text: str) -> str:
         if not isinstance(text, str):
@@ -398,7 +526,7 @@ Answer:
 """
             llm_response = self.ollama_chat(prompt)
 
-            if not llm_response or llm_response.startswith("LLM error:") or "no response" in llm_response.lower():
+            if not llm_response or _is_llm_error(llm_response):
                 fallback = database.search_kb_answer(question)
                 return fallback or "No information was found on this topic."
 
@@ -512,8 +640,8 @@ Answer:
 
         llm_prompt = f'''
 Below is the recent conversation history and a new user message. If one or more tool calls are needed, return JSON in the following format:
-Single tool: {{"tool": "weather", "city": "Istanbul"}}
-Multiple tools: [{{"tool": "weather", "city": "Istanbul"}}, {{"tool": "knowledge_base", "question": "travel policy"}}]
+Single tool: {{"tool": "knowledge_base", "question": "travel policy"}}
+Multiple tools: [{{"tool": "knowledge_base", "question": "travel policy"}}, {{"tool": "document_summarize"}}]
 Internal knowledge: {{"tool": "knowledge_base", "question": "travel policy"}}
 Support ticket: {{"tool": "support_ticket", "department": "IT", "description": "My computer is broken", "priority": "urgent", "category": "hardware"}}
 Document query: {{"tool": "document_query", "query": "What is the annual leave procedure?"}}
@@ -553,16 +681,19 @@ User message: {message}
                   "July", "August", "September", "October", "November", "December"]
 
         target_date = None
-        if "today" in lower_msg:
+        if any(kw in lower_msg for kw in ("today", "bugün", "bugun")):
             target_date, date_type = now, "date_today"
-        elif "tomorrow" in lower_msg:
+        elif any(kw in lower_msg for kw in ("tomorrow", "yarın", "yarin")):
             target_date, date_type = now + datetime.timedelta(days=1), "date_tomorrow"
-        elif "yesterday" in lower_msg:
+        elif any(kw in lower_msg for kw in ("yesterday", "dün", "dun")):
             target_date, date_type = now - datetime.timedelta(days=1), "date_yesterday"
-        else:
+        elif _has_date_intent(lower_msg):
+            # Only attempt fuzzy parsing when the message actually talks about a
+            # date. dateutil's fuzzy mode happily reads "2 + 2" as a date, which
+            # would swallow unrelated questions before they reach the LLM.
             try:
                 target_date, date_type = parser.parse(message, fuzzy=True, dayfirst=True), "date_parse"
-            except (parser.ParserError, TypeError):
+            except (parser.ParserError, TypeError, OverflowError, ValueError):
                 pass
 
         if target_date:
@@ -616,10 +747,12 @@ User message: {message}
             yield quick_response
             return
 
-        tool_response = self._decide_and_execute_tool(message, user_id)
-        if tool_response:
-            yield tool_response
-            return
+        explicit_tool = self._extract_json((message or "").strip())
+        if isinstance(explicit_tool, dict) and explicit_tool.get("tool"):
+            tool_response = self._handle_tool_call(explicit_tool, message, user_id)
+            if tool_response:
+                yield tool_response
+                return
 
         date_response = self._handle_date_queries(message, user_id)
         if date_response:
@@ -627,15 +760,40 @@ User message: {message}
             return
 
         chunks = []
+        waiting_for_final = LLM_DISABLE_THINKING
+        prefinal_buffer = ""
         for chunk in self.ollama_chat_stream(
             message, model=self.user_models.get(user_id), conversation_user_id=user_id
         ):
-            chunks.append(chunk)
-            yield chunk
+            if waiting_for_final:
+                prefinal_buffer += chunk
+                if WIRE_FINAL in prefinal_buffer:
+                    waiting_for_final = False
+                    chunk = prefinal_buffer.split(WIRE_FINAL, 1)[1]
+                    prefinal_buffer = ""
+                elif len(prefinal_buffer) > 800 and not any(
+                    marker in prefinal_buffer.lower()[:240]
+                    for marker in ("the user said", "the user asks", "the user wants", "i should", "i need to", "we need", "thinking process:")
+                ):
+                    waiting_for_final = False
+                    chunk = prefinal_buffer
+                    prefinal_buffer = ""
+                else:
+                    continue
+
+            if chunk:
+                chunks.append(chunk)
+                yield chunk
+
+        if waiting_for_final and prefinal_buffer:
+            cleaned = _strip_leading_analysis(prefinal_buffer)
+            if cleaned:
+                chunks.append(cleaned)
+                yield cleaned
 
         full_response = "".join(chunks).strip()
         if full_response:
-            database.add_chat_history(user_id, "llm_response", message, full_response)
+            database.add_chat_history(user_id, "llm_response", message, _strip_leading_analysis(full_response))
 
     def _extract_json(self, text: str):
         """Attempt to safely extract a JSON dict or list from text.
@@ -729,12 +887,6 @@ User message: {message}
         user_state = self.user_states.setdefault(user_id, {})
         tool = data.get('tool')
         bot_response = ""
-
-        if tool == 'weather':
-            city = data.get('city', 'Istanbul')
-            bot_response = self.get_weather(city)
-            database.add_chat_history(user_id, "weather", original_user_message, bot_response, json.dumps({"city": city}))
-            return bot_response
 
         if tool == 'knowledge_base':
             question = data.get('question', '')
@@ -841,8 +993,7 @@ User message: {message}
         return bot_response
 
     def _explain_report(self, report_id, query, original_user_message, user_id):
-        search_results = doc_processor.search_in_documents(query, top_k=6)
-        filtered_results = [r for r in search_results if str(r['report_id']) == str(report_id)]
+        filtered_results = doc_processor.search_in_documents(query, top_k=6, report_id=report_id)
         if not filtered_results:
             return "No relevant information was found in the selected document."
         context_for_llm = "\n\n---\n\n".join([result['text'] for result in filtered_results])
@@ -865,11 +1016,10 @@ Your answer:
         return bot_response
 
     def _summarize_report(self, report_id, original_user_message, user_id: str):
-        top_chunks = doc_processor.search_in_documents("", top_k=8)
-        filtered = [r for r in top_chunks if str(r['report_id']) == str(report_id)]
+        filtered = doc_processor.search_in_documents("", top_k=8, report_id=report_id)
         if not filtered:
             guess_query = "general summary introduction purpose conclusion findings abstract overview methods results"
-            filtered = [r for r in doc_processor.search_in_documents(guess_query, top_k=10) if str(r['report_id']) == str(report_id)]
+            filtered = doc_processor.search_in_documents(guess_query, top_k=10, report_id=report_id)
         if not filtered:
             bot_response = "Not enough content was found in the selected document to generate a summary."
             database.add_chat_history(user_id, "doc_summary", original_user_message, bot_response, json.dumps({"report_id": report_id}))
