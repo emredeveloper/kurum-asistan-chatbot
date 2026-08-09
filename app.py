@@ -1,6 +1,8 @@
 from flask import Flask, Response, render_template, request, jsonify, send_from_directory, session, stream_with_context
 import requests
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
+import functools
+import hmac
 import logging
 from logging.handlers import RotatingFileHandler
 import time
@@ -36,14 +38,53 @@ RATE_LIMIT_WINDOW_SECONDS = 60
 RATE_LIMIT_MAX_REQUESTS = 30
 _rate_limit_store = {}
 
+# Cross-user endpoints (staff directory, every ticket in the system) are gated on a
+# shared secret rather than left open. This is a deliberate minimum, not a user system:
+# set ADMIN_API_TOKEN and send it as X-Admin-Token. Without the variable set, the
+# endpoints stay closed rather than defaulting to open.
+ADMIN_API_TOKEN = os.getenv('ADMIN_API_TOKEN', '').strip()
+
+
+def admin_required(view):
+    @functools.wraps(view)
+    def wrapper(*args, **kwargs):
+        if not ADMIN_API_TOKEN:
+            return jsonify({
+                'success': False,
+                'message': 'This endpoint is disabled. Set ADMIN_API_TOKEN to enable it.',
+            }), 404
+        supplied = request.headers.get('X-Admin-Token', '')
+        if not hmac.compare_digest(supplied, ADMIN_API_TOKEN):
+            return jsonify({'success': False, 'message': 'Unauthorized.'}), 401
+        return view(*args, **kwargs)
+    return wrapper
+
+
+RATE_LIMITED_ENDPOINTS = {'chat', 'chat_stream', 'upload_report'}
+
+
+def ensure_session_user():
+    """Assign the session id before anything reads it.
+
+    The rate limiter runs in before_request while the views used to mint user_id
+    themselves, so a caller's first request was counted under its IP and later ones
+    under a fresh uid — splitting the count and handing out part of the quota free.
+    """
+    if 'user_id' not in session:
+        session['user_id'] = str(uuid.uuid4())
+    return session['user_id']
+
+
 def _rate_limit_key():
-    if 'user_id' in session:
-        return f"uid:{session['user_id']}"
-    return f"ip:{request.remote_addr}"
+    user_id = session.get('user_id')
+    if user_id:
+        return f"uid:{user_id}"
+    return f"ip:{request.remote_addr or 'unknown'}"
 
 @app.before_request
 def apply_rate_limiting():
-    if request.endpoint in {'chat', 'upload_report'}:
+    if request.endpoint in RATE_LIMITED_ENDPOINTS:
+        ensure_session_user()
         key = _rate_limit_key()
         now = time.time()
         window_start = now - RATE_LIMIT_WINDOW_SECONDS
@@ -310,10 +351,12 @@ def api_support_tickets_read(idx):
     return jsonify({'success': success})
 
 @app.route('/api/users')
+@admin_required
 def api_users():
     return jsonify(database.get_users())
 
 @app.route('/api/support_tickets_all')
+@admin_required
 def api_support_tickets_all():
     return jsonify(database.get_support_tickets_all())
 

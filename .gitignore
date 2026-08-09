@@ -20,6 +20,7 @@ ENV/
 # IDE/editor
 .vscode/
 .idea/
+.claude/
 *.sublime-project
 *.sublime-workspace
 .DS_Store

@@ -77,6 +77,70 @@ def test_upload_report_empty_filename(client):
     assert json_data['message'] == 'No file selected.'
 
 
+def test_rate_limit_counts_under_one_key_from_the_first_request(client, mocker, monkeypatch):
+    """The limiter runs in before_request; views used to mint user_id themselves, so
+    a caller's first request was counted under its IP and the rest under a fresh uid,
+    splitting the count and giving away part of the quota."""
+    import app as app_module
+    mocker.patch.object(app_module.bot, 'ollama_chat', return_value='sabit')
+    monkeypatch.setattr(app_module, '_rate_limit_store', {})
+
+    statuses = []
+    for _ in range(app_module.RATE_LIMIT_MAX_REQUESTS + 1):
+        statuses.append(client.post('/chat', json={'message': 'x'}).status_code)
+
+    assert statuses[-1] == 429
+    assert statuses[:-1] == [200] * app_module.RATE_LIMIT_MAX_REQUESTS
+    assert len(app_module._rate_limit_store) == 1, "requests split across several keys"
+
+
+def test_chat_stream_is_rate_limited(client, mocker, monkeypatch):
+    """/chat_stream reaches the same LLM as /chat, so leaving it unlimited would
+    hand out a free bypass of the quota."""
+    import app as app_module
+    monkeypatch.setattr(app_module, '_rate_limit_store', {})
+    # Stub the model: 30 real generations would outrun the 60s window and the
+    # limiter would legitimately never fire.
+    mocker.patch.object(app_module.bot, 'process_message_stream',
+                        side_effect=lambda *a, **k: iter(['ok']))
+    assert 'chat_stream' in app_module.RATE_LIMITED_ENDPOINTS
+
+    for _ in range(app_module.RATE_LIMIT_MAX_REQUESTS):
+        response = client.post('/chat_stream', json={'message': 'x'})
+        b"".join(response.response)
+        response.close()
+
+    blocked = client.post('/chat_stream', json={'message': 'x'})
+    assert blocked.status_code == 429
+
+
+def test_cross_user_endpoints_disabled_without_token(client, mocker):
+    """These expose the staff directory and every ticket in the system, so with no
+    token configured they must stay closed rather than default to open."""
+    mocker.patch("app.ADMIN_API_TOKEN", "")
+
+    for path in ('/api/users', '/api/support_tickets_all'):
+        response = client.get(path)
+        assert response.status_code == 404, path
+
+
+def test_cross_user_endpoints_reject_wrong_token(client, mocker):
+    mocker.patch("app.ADMIN_API_TOKEN", "gercek-token")
+
+    for path in ('/api/users', '/api/support_tickets_all'):
+        assert client.get(path).status_code == 401, path
+        assert client.get(path, headers={'X-Admin-Token': 'yanlis'}).status_code == 401, path
+
+
+def test_cross_user_endpoints_accept_valid_token(client, mocker):
+    mocker.patch("app.ADMIN_API_TOKEN", "gercek-token")
+
+    for path in ('/api/users', '/api/support_tickets_all'):
+        response = client.get(path, headers={'X-Admin-Token': 'gercek-token'})
+        assert response.status_code == 200, path
+        assert isinstance(response.get_json(), list)
+
+
 def test_upload_report_reports_processing_failure(client, mocker):
     from io import BytesIO
     import app as app_module

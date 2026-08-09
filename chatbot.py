@@ -992,8 +992,17 @@ User message: {message}
         database.add_chat_history(user_id, "tool_error", original_user_message, bot_response, json.dumps(data))
         return bot_response
 
+    @staticmethod
+    def _allowed_report_ids(user_id: str) -> list:
+        """Report ids this user owns. The vector store is shared, so every search
+        made on a user's behalf must be scoped to these."""
+        return [r["id"] for r in database.get_reports(user_id)]
+
     def _explain_report(self, report_id, query, original_user_message, user_id):
-        filtered_results = doc_processor.search_in_documents(query, top_k=6, report_id=report_id)
+        filtered_results = doc_processor.search_in_documents(
+            query, top_k=6, report_id=report_id,
+            allowed_report_ids=self._allowed_report_ids(user_id),
+        )
         if not filtered_results:
             return "No relevant information was found in the selected document."
         context_for_llm = "\n\n---\n\n".join([result['text'] for result in filtered_results])
@@ -1016,10 +1025,15 @@ Your answer:
         return bot_response
 
     def _summarize_report(self, report_id, original_user_message, user_id: str):
-        filtered = doc_processor.search_in_documents("", top_k=8, report_id=report_id)
+        allowed = self._allowed_report_ids(user_id)
+        filtered = doc_processor.search_in_documents(
+            "", top_k=8, report_id=report_id, allowed_report_ids=allowed
+        )
         if not filtered:
             guess_query = "general summary introduction purpose conclusion findings abstract overview methods results"
-            filtered = doc_processor.search_in_documents(guess_query, top_k=10, report_id=report_id)
+            filtered = doc_processor.search_in_documents(
+                guess_query, top_k=10, report_id=report_id, allowed_report_ids=allowed
+            )
         if not filtered:
             bot_response = "Not enough content was found in the selected document to generate a summary."
             database.add_chat_history(user_id, "doc_summary", original_user_message, bot_response, json.dumps({"report_id": report_id}))

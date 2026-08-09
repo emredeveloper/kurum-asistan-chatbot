@@ -35,6 +35,42 @@ def test_blank_query_respects_report_id_filter():
     assert results == [{"text": "yeni belge", "report_id": 1, "score": None}]
 
 
+def test_search_enforces_allowed_report_ids():
+    """The vector store is shared across users, so a search made on one user's
+    behalf must never surface another user's document text."""
+    processor = DocumentProcessor()
+    processor.metadata = {
+        1: current_meta(4, "A kullanicisinin gizli maas verisi", [1.0, 0.0]),
+        2: current_meta(7, "B kullanicisinin belgesi", [1.0, 0.0]),
+    }
+    processor._embed_many = lambda texts: [[1.0, 0.0]]
+
+    results = processor.search_in_documents("maas", top_k=5, allowed_report_ids=[7])
+
+    assert [r["report_id"] for r in results] == [7]
+
+
+def test_search_with_empty_allowlist_returns_nothing():
+    processor = DocumentProcessor()
+    processor.metadata = {1: current_meta(4, "gizli", [1.0, 0.0])}
+    processor._embed_many = lambda texts: [[1.0, 0.0]]
+
+    assert processor.search_in_documents("gizli", top_k=5, allowed_report_ids=[]) == []
+    assert processor.search_in_documents("", top_k=5, allowed_report_ids=[]) == []
+
+
+def test_blank_query_enforces_allowed_report_ids():
+    processor = DocumentProcessor()
+    processor.metadata = {
+        1: current_meta(4, "baskasinin belgesi", [1.0, 0.0]),
+        2: current_meta(7, "kendi belgem", [0.0, 1.0]),
+    }
+
+    results = processor.search_in_documents("", top_k=8, allowed_report_ids=[7])
+
+    assert [r["report_id"] for r in results] == [7]
+
+
 def test_similarity_search_respects_report_id_filter():
     processor = DocumentProcessor()
     processor.metadata = {
@@ -81,6 +117,42 @@ def test_prune_orphan_chunks_removes_only_unknown_reports(mocker):
     assert result["removed_chunks"] == 1
     assert result["orphan_report_ids"] == ["99"]
     assert [m["text"] for m in processor.metadata.values()] == ["mevcut rapor"]
+
+
+def test_prune_orphan_chunks_refuses_when_report_table_empty(mocker):
+    """Pointing the app at a fresh/test database must not wipe real embeddings."""
+    processor = DocumentProcessor()
+    processor.metadata = {
+        1: current_meta(4, "gercek belge", [1.0, 0.0]),
+        2: current_meta(8, "gercek belge 2", [0.0, 1.0]),
+    }
+    save_mock = mocker.patch.object(processor, "_save")
+    mocker.patch("document_processor.database.get_reports", return_value=[])
+
+    result = processor.prune_orphan_chunks()
+
+    assert result["removed_chunks"] == 0
+    assert result["skipped"] == "empty_report_table"
+    assert len(processor.metadata) == 2
+    save_mock.assert_not_called()
+
+
+def test_prune_orphan_chunks_refuses_bulk_removal(mocker):
+    """Removing most of the store signals a misconfigured DB, not stale data."""
+    processor = DocumentProcessor()
+    processor.metadata = {
+        1: current_meta(4, "a", [1.0, 0.0]),
+        2: current_meta(8, "b", [0.0, 1.0]),
+        3: current_meta(9, "c", [1.0, 1.0]),
+    }
+    mocker.patch.object(processor, "_save")
+    mocker.patch("document_processor.database.get_reports", return_value=[{"id": 4}])
+
+    result = processor.prune_orphan_chunks()
+
+    assert result["removed_chunks"] == 0
+    assert result["skipped"] == "bulk_removal"
+    assert len(processor.metadata) == 3
 
 
 def test_prune_orphan_chunks_keeps_everything_when_db_unreadable(mocker):

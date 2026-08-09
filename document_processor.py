@@ -272,13 +272,24 @@ class DocumentProcessor:
             logger.exception("Error processing document %s", file_path)
             return False
 
-    def search_in_documents(self, query: str, top_k=5, report_id=None):
-        """Search stored chunks. When `report_id` is given, only that document is considered."""
+    def search_in_documents(self, query: str, top_k=5, report_id=None, allowed_report_ids=None):
+        """Search stored chunks.
+
+        `report_id` narrows the search to one document. `allowed_report_ids` is the
+        tenancy boundary: the vector store is shared across users, so a caller acting
+        on behalf of a user must pass that user's report ids or a query can surface
+        another user's document text. An empty collection matches nothing.
+        """
         if not self.metadata:
             return []
 
+        allowed = None if allowed_report_ids is None else {str(r) for r in allowed_report_ids}
+
         def _belongs(meta):
-            return report_id is None or str(meta.get("report_id")) == str(report_id)
+            current = str(meta.get("report_id"))
+            if allowed is not None and current not in allowed:
+                return False
+            return report_id is None or current == str(report_id)
 
         if not (query or "").strip():
             results = []
@@ -335,11 +346,25 @@ class DocumentProcessor:
         outside the app (or a database that was reset) leaves chunks behind that
         can later collide with a reused report_id.
         """
+        if not self.metadata:
+            return {"removed_chunks": 0, "orphan_report_ids": []}
+
         try:
-            known_ids = {str(r["id"]) for r in database.get_reports()}
+            known_ids = {str(r["id"]) for r in database.get_reports(limit=1000000)}
         except Exception as e:
             logger.warning("Could not read reports for orphan pruning: %s", e)
             return {"removed_chunks": 0, "orphan_report_ids": []}
+
+        # An empty report table means the store and the database disagree wholesale:
+        # a fresh/other database, or a pointer to the wrong file. Deleting every chunk
+        # on that signal destroys embeddings that cost real time and money to rebuild,
+        # so treat it as a misconfiguration and keep the data.
+        if not known_ids:
+            logger.warning(
+                "Skipping orphan pruning: the database lists no reports but the vector "
+                "store holds %s chunk(s). Refusing to clear it.", len(self.metadata)
+            )
+            return {"removed_chunks": 0, "orphan_report_ids": [], "skipped": "empty_report_table"}
 
         orphan_ids = set()
         ids_to_remove = []
@@ -348,6 +373,16 @@ class DocumentProcessor:
             if str(report_id) not in known_ids:
                 ids_to_remove.append(chunk_id)
                 orphan_ids.add(report_id)
+
+        # Wiping most of the store at once is far more likely to be a misconfigured
+        # database than a genuine cleanup. Report it instead of acting on it.
+        if len(ids_to_remove) > len(self.metadata) * 0.5:
+            logger.warning(
+                "Skipping orphan pruning: it would remove %s of %s chunk(s), which "
+                "suggests the wrong database is configured rather than stale data.",
+                len(ids_to_remove), len(self.metadata),
+            )
+            return {"removed_chunks": 0, "orphan_report_ids": [], "skipped": "bulk_removal"}
 
         for chunk_id in ids_to_remove:
             self.metadata.pop(chunk_id, None)
